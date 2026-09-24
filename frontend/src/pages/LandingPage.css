@@ -1,0 +1,136 @@
+/* Landing Page */
+.landing { min-height: 100vh; display: flex; flex-direction: column; }
+
+/* Hero */
+.hero.container {
+  padding: 4rem 1.5rem 3rem;
+  text-align: center;
+}
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: var(--accent-dim);
+  border: 1px solid var(--border-active);
+  border-radius: 99px;
+  padding: 0.35rem 0.9rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--accent-light);
+  margin-bottom: 1.75rem;
+}
+.hero-title { margin-bottom: 1.25rem; letter-spacing: -0.02em; }
+.hero-subtitle {
+  max-width: 600px;
+  margin: 0 auto 2.5rem;
+  font-size: 1.05rem;
+  color: var(--text-secondary);
+}
+
+/* Form */
+.hero-form {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+.form-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: stretch;
+}
+.input-wrapper { position: relative; flex: 1 1 auto; }
+.input-icon {
+  position: absolute;
+  left: 0.9rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+.hero-input { padding-left: 2.75rem !important; height: 52px; }
+.form-error {
+  color: var(--error);
+  font-size: 0.85rem;
+  margin-top: 0.6rem;
+  text-align: left;
+}
+.form-hint {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 0.75rem;
+  text-align: left;
+}
+
+/* Feature pills */
+.hero-pills {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.6rem;
+  margin-top: 2rem;
+}
+.hero-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  padding: 0.35rem 0.8rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+/* Learn more link */
+.hero-learn {
+  margin-top: 1.25rem;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+.hero-learn-link {
+  color: var(--accent-light);
+  text-decoration: none;
+  font-weight: 600;
+  transition: color var(--transition);
+}
+.hero-learn-link:hover { color: var(--teal); }
+
+/* How it works mini strip */
+.how-mini.container {
+  padding: 0rem 1.5rem 4rem;
+}
+.how-mini-steps {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 1.5rem 2rem;
+}
+.how-mini-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+.how-mini-num {
+  font-family: var(--font-mono);
+  font-size: 2rem;
+  font-weight: 800;
+  background: linear-gradient(135deg, var(--accent), var(--teal));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.how-mini-label {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.how-mini-arrow { color: var(--text-muted); padding-bottom: 1rem; }
+
+@media (max-width: 600px) {
+  .form-row { flex-direction: column; }
+  .btn-lg { width: 100%; justify-content: center; }
+  .how-mini-arrow { display: none; }
+}
