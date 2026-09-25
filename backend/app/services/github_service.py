@@ -1,3 +1,4 @@
+import logging
 import os
 import shutil
 import tempfile
@@ -5,6 +6,8 @@ from pathlib import Path
 from typing import Optional
 import httpx
 from app.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 # Files/directories to ignore when scanning
 IGNORE_DIRS = {
@@ -84,3 +87,67 @@ def scan_repository_files(repo_path: str) -> list[dict]:
             )
 
     return files
+
+
+# Filenames that must never be included in the scanned file list
+_FORBIDDEN_FILENAMES = {
+    ".env", ".env.local", ".env.production", ".env.staging",
+    ".env.development", ".env.test", ".secret", "secrets.yml",
+    "secrets.yaml", "id_rsa", "id_rsa.pub", "id_ed25519", "id_ed25519.pub",
+    ".npmrc", ".pypirc", ".netrc", "credentials",
+}
+
+
+def _is_safe_path(base: Path, target: Path) -> bool:
+    """Return True if target resolves inside base (prevents path traversal)."""
+    try:
+        target.resolve().relative_to(base.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def clone_and_scan_repository(github_url: str) -> list[dict]:
+    """
+    Clone the given GitHub repository to a temporary directory, scan its files,
+    and return the file list.  The clone is deleted after scanning.
+
+    Returns an empty list on any clone failure.
+
+    Security:
+    - Forbidden filenames (.env, credentials, etc.) are excluded.
+    - Path traversal is prevented via _is_safe_path.
+    - The cloned code is never executed.
+    """
+    import git  # gitpython — listed in requirements.txt
+
+    tmp_dir = tempfile.mkdtemp(prefix="repoguide_")
+    try:
+        logger.info("Cloning %s into %s", github_url, tmp_dir)
+        git.Repo.clone_from(
+            github_url,
+            tmp_dir,
+            depth=1,          # shallow clone — history not needed
+            no_single_branch=False,
+        )
+        files = scan_repository_files(tmp_dir)
+        # Post-filter: remove forbidden filenames regardless of path
+        safe_files = []
+        base = Path(tmp_dir)
+        for f in files:
+            name_lower = f["file_name"].lower()
+            if name_lower in _FORBIDDEN_FILENAMES:
+                logger.warning("Excluding forbidden file from scan: %s", f["file_path"])
+                continue
+            # Prevent path traversal in stored paths
+            candidate = base / f["file_path"]
+            if not _is_safe_path(base, candidate):
+                logger.warning("Path traversal attempt excluded: %s", f["file_path"])
+                continue
+            safe_files.append(f)
+        return safe_files
+    except Exception as exc:
+        logger.error("Failed to clone %s: %s", github_url, exc)
+        return []
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
