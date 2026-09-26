@@ -1,9 +1,10 @@
 import { Fragment, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { GitFork, Sparkles, ArrowRight, BookOpen, GitBranch, MessageSquare } from 'lucide-react'
+import { Sparkles, ArrowRight, BookOpen, GitBranch, MessageSquare } from 'lucide-react'
 import { createRepository } from '../services/api'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
+import RepositoryInput from '../components/RepositoryInput'
 import './LandingPage.css'
 
 const QUICK_FEATURES = [
@@ -14,32 +15,12 @@ const QUICK_FEATURES = [
 ]
 
 export default function LandingPage() {
-  const [url, setUrl] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const navigate = useNavigate()
 
   const isValidGithubUrl = (u: string) =>
     /^https?:\/\/github\.com\/[^/]+\/[^/]+\/?$/.test(u.trim())
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError('')
-    if (!url.trim()) { setError('Please enter a GitHub repository URL.'); return }
-    if (!isValidGithubUrl(url)) {
-      setError('Please enter a valid GitHub URL (e.g. https://github.com/owner/repo)')
-      return
-    }
-    setLoading(true)
-    try {
-      const repo = await createRepository(url.trim())
-      navigate(`/repository/${repo.id}`)
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to connect to the backend. Make sure it is running.')
-    } finally {
-      setLoading(false)
-    }
-  }
 
   return (
     <div className="landing bg-mesh">
@@ -63,40 +44,23 @@ export default function LandingPage() {
         </p>
 
         {/* Input form */}
-        <form
-          className="hero-form fade-in-up card"
-          style={{ animationDelay: '0.15s' }}
-          onSubmit={handleSubmit}
-        >
-          <div className="form-row">
-            <div className="input-wrapper">
-              <GitFork size={18} className="input-icon" />
-              <input
-                id="github-url-input"
-                className="input hero-input"
-                type="url"
-                placeholder="https://github.com/owner/repository"
-                value={url}
-                onChange={(e) => { setUrl(e.target.value); setError('') }}
-                disabled={loading}
-                autoFocus
-              />
-            </div>
-            <button
-              id="analyze-btn"
-              type="submit"
-              className="btn btn-primary btn-lg"
-              disabled={loading}
-            >
-              {loading
-                ? <><div className="spinner" style={{ width: 16, height: 16 }} /> Analyzing…</>
-                : <>Analyze <ArrowRight size={16} /></>
-              }
-            </button>
-          </div>
-          {error && <p className="form-error">{error}</p>}
-          <p className="form-hint">Public GitHub repositories only · Analysis takes ~30–90 s</p>
-        </form>
+        <RepositoryInput 
+          onSubmit={(u) => {
+            if (!u.trim()) { setError('Please enter a GitHub repository URL.'); return }
+            if (!isValidGithubUrl(u)) {
+              setError('Please enter a valid GitHub URL (e.g. https://github.com/owner/repo)')
+              return
+            }
+            setLoading(true)
+            createRepository(u.trim())
+              .then(repo => navigate(`/repository/${repo.id}`))
+              .catch((err: any) => setError(err?.response?.data?.detail || 'Failed to connect to the backend. Make sure it is running.'))
+              .finally(() => setLoading(false))
+          }}
+          loading={loading}
+          error={error}
+          setError={setError}
+        />
 
         {/* Quick feature pills */}
         <div className="hero-pills fade-in-up" style={{ animationDelay: '0.2s' }}>
