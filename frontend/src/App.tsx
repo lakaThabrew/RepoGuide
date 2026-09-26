@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import LandingPage from './pages/LandingPage'
 import FeaturesPage from './pages/FeaturesPage'
-import RepositoryLayout from './pages/RepositoryLayout'
+import RepositoryLayout from './layouts/RepositoryLayout'
 import OverviewPage from './pages/OverviewPage'
 import ArchitecturePage from './pages/ArchitecturePage'
 import SetupPage from './pages/SetupPage'
