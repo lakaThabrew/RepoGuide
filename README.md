@@ -227,6 +227,21 @@ npm run build       # Vite production build: successful
 
 ---
 
+## Documentation
+- [Architecture](docs/architecture.md)
+- [API Documentation](docs/api.md)
+- [Database Design](docs/database.md)
+- [Development Guide](docs/development.md)
+- [Demo Script](docs/demo.md)
+
+## Docker
+Run the application using Docker Compose:
+```bash
+docker compose up --build
+```
+
+---
+
 ## Demo Flow
 
 See [`docs/demo.md`](docs/demo.md) for a judge-friendly 3–5 minute walkthrough.
