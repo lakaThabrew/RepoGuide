@@ -178,6 +178,68 @@ export interface ContributionGenerateResponse {
   error?: string
 }
 
+// ---------------------------------------------------------------------------
+// Setup Guide APIs — mirrors backend/app/schemas/setup.py
+// ---------------------------------------------------------------------------
+
+export type SetupConfidence = 'high' | 'medium' | 'low'
+
+export interface SetupCommand {
+  command: string
+  explanation: string
+  evidence: string[]
+}
+
+export interface SetupPrerequisite {
+  name: string
+  version_note: string
+  evidence: string[]
+}
+
+export interface SetupSection {
+  title: string
+  description: string
+  commands: SetupCommand[]
+  notes: string[]
+  evidence: string[]
+}
+
+export interface SetupWarning {
+  message: string
+  evidence: string[]
+}
+
+export interface SetupGuide {
+  repository_id: string
+  generated_at?: string
+  prerequisites: SetupPrerequisite[]
+  install_dependencies?: SetupSection
+  environment_configuration?: SetupSection
+  database_setup?: SetupSection
+  run_application?: SetupSection
+  verify_setup?: SetupSection
+  confidence: SetupConfidence
+  warnings: SetupWarning[]
+  is_deterministic: boolean
+}
+
+export interface SetupGuideResponse {
+  repository_id: string
+  guide?: SetupGuide
+  status: string
+  error?: string
+  generated_at?: string
+}
+
+export interface SetupGenerateResponse {
+  message: string
+  repository_id: string
+  status: string
+  confidence?: string
+  warnings_count: number
+  error?: string
+}
+
 // Repository APIs
 export const createRepository = (github_url: string) =>
   api.post<Repository>('/repositories', { github_url }).then((r) => r.data)
@@ -202,3 +264,10 @@ export const generateContributions = (id: string) =>
 
 export const getContributions = (id: string) =>
   api.get<ContributionResponse>(`/repositories/${id}/contributions`).then((r) => r.data)
+
+// Setup Guide APIs
+export const generateSetupGuide = (id: string) =>
+  api.post<SetupGenerateResponse>(`/repositories/${id}/setup/generate`).then((r) => r.data)
+
+export const getSetupGuide = (id: string) =>
+  api.get<SetupGuideResponse>(`/repositories/${id}/setup`).then((r) => r.data)
