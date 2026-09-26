@@ -130,6 +130,34 @@
 .badge-muted { background: var(--bg-elevated); color: var(--text-muted); }
 .ml-1 { margin-left: 0.25rem; }
 
+/* Source snippets (Q&A) */
+.source-snippets-wrap { display: flex; flex-direction: column; gap: 0.5rem; }
+.source-snippet {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--bg-elevated);
+}
+.source-snippet-header {
+  display: flex; align-items: center; gap: 0.4rem; justify-content: space-between;
+  padding: 0.2rem 0.5rem;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.source-snippet-body {
+  margin: 0;
+  padding: 0.5rem 0.65rem;
+  font-size: 0.72rem;
+  font-family: var(--font-mono, monospace);
+  color: var(--text-secondary, var(--text-muted));
+  white-space: pre-wrap;
+  overflow-x: auto;
+  max-height: 14rem;
+  overflow-y: auto;
+  /* Never render as HTML; always as plain text */
+  word-break: break-all;
+}
+
 .chat-input-form { display: flex; gap: 0.75rem; align-items: center; position: sticky; bottom: 1rem; }
 .chat-input-form .input { height: 44px; }
 

@@ -135,11 +135,22 @@ export interface QuestionEvidenceItem {
   category?: string
 }
 
+export interface QuestionSourceFile {
+  file_path: string
+  language?: string
+  file_size: number
+  is_binary: boolean
+  truncated: boolean
+  snippet?: string
+  error?: string
+}
+
 export interface QuestionResponse {
   repository_id: string
   question: string
   answer?: string
   evidence: QuestionEvidenceItem[]
+  source_files: QuestionSourceFile[]
   referenced_files: string[]
   is_deterministic: boolean
   intent?: string
