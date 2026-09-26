@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { useOutletContext } from 'react-router-dom'
+import { useOutletContext, useNavigate } from 'react-router-dom'
 import {
   Code2,
   Globe,
@@ -210,7 +210,8 @@ function ArchitectureSection({ components }: { components: ArchitectureComponent
   )
 }
 
-function EntryPointsSection({ entryPoints }: { entryPoints: EntryPoint[] }) {
+function EntryPointsSection({ entryPoints, repoId }: { entryPoints: EntryPoint[]; repoId: string }) {
+  const navigate = useNavigate()
   if (!entryPoints || entryPoints.length === 0) return null
 
   return (
@@ -235,6 +236,13 @@ function EntryPointsSection({ entryPoints }: { entryPoints: EntryPoint[] }) {
               <code style={{ display: 'block', marginBottom: '0.3rem', fontSize: '0.8rem' }}>{ep.file_path}</code>
               <p className="text-secondary text-xs" style={{ margin: 0 }}>{ep.evidence}</p>
             </div>
+            <button
+              className="btn btn-outline"
+              style={{ fontSize: '0.68rem', padding: '0.15rem 0.5rem', height: 'auto', flexShrink: 0 }}
+              onClick={() => navigate(`/repository/${repoId}/files?path=${encodeURIComponent(ep.file_path)}`)}
+            >
+              View
+            </button>
           </div>
         ))}
       </div>
@@ -242,7 +250,8 @@ function EntryPointsSection({ entryPoints }: { entryPoints: EntryPoint[] }) {
   )
 }
 
-function ImportantFilesSection({ files }: { files: FileEvidence[] }) {
+function ImportantFilesSection({ files, repoId }: { files: FileEvidence[]; repoId: string }) {
+  const navigate = useNavigate()
   if (!files || files.length === 0) return null
 
   const grouped = groupByCategory(files)
@@ -278,7 +287,16 @@ function ImportantFilesSection({ files }: { files: FileEvidence[] }) {
                     <code style={{ fontSize: '0.78rem', display: 'block', marginBottom: '0.2rem' }}>{f.file_path}</code>
                     <p className="text-xs text-secondary" style={{ margin: 0 }}>{f.reason}</p>
                   </div>
-                  <div style={{ flexShrink: 0 }}>{confidenceBadge(f.confidence)}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0 }}>
+                    {confidenceBadge(f.confidence)}
+                    <button
+                      className="btn btn-outline"
+                      style={{ fontSize: '0.68rem', padding: '0.15rem 0.5rem', height: 'auto' }}
+                      onClick={() => navigate(`/repository/${repoId}/files?path=${encodeURIComponent(f.file_path)}`)}
+                    >
+                      View
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -623,12 +641,12 @@ export default function OverviewPage() {
 
           {/* Entry Points */}
           {analysis.entry_points && (
-            <EntryPointsSection entryPoints={analysis.entry_points} />
+            <EntryPointsSection entryPoints={analysis.entry_points} repoId={repo.id} />
           )}
 
           {/* Important Files */}
           {analysis.important_files && (
-            <ImportantFilesSection files={analysis.important_files} />
+            <ImportantFilesSection files={analysis.important_files} repoId={repo.id} />
           )}
 
           {/* Repository Structure */}

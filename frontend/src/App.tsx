@@ -7,6 +7,7 @@ import ArchitecturePage from './pages/ArchitecturePage'
 import SetupPage from './pages/SetupPage'
 import AskPage from './pages/AskPage'
 import ContributionPage from './pages/ContributionPage'
+import FilesPage from './pages/FilesPage'
 
 export default function App() {
   return (
@@ -20,6 +21,7 @@ export default function App() {
           <Route path="setup" element={<SetupPage />} />
           <Route path="ask" element={<AskPage />} />
           <Route path="contribution" element={<ContributionPage />} />
+          <Route path="files" element={<FilesPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

@@ -261,9 +261,10 @@ function ArchitectureDiagram({
 
 // ── Component Card ────────────────────────────────────────────────────────────
 
-function ComponentCard({ comp }: { comp: ArchitectureComponent }) {
+function ComponentCard({ comp, repoId }: { comp: ArchitectureComponent; repoId: string }) {
   const [expanded, setExpanded] = useState(false)
   const color = componentColor(comp.name)
+  const navigate = useNavigate()
 
   return (
     <div
@@ -315,9 +316,18 @@ function ComponentCard({ comp }: { comp: ArchitectureComponent }) {
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                 {comp.evidence_files.map((f) => (
-                  <div key={f} className="file-ref">
-                    <FileText size={11} />
-                    <span className="file-ref-path">{f}</span>
+                  <div key={f} className="file-ref" style={{ justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.3rem' }}>
+                      <FileText size={11} />
+                      <span className="file-ref-path">{f}</span>
+                    </div>
+                    <button
+                      className="btn btn-outline"
+                      style={{ fontSize: '0.65rem', padding: '0.1rem 0.4rem', height: 'auto', flexShrink: 0 }}
+                      onClick={(e) => { e.stopPropagation(); navigate(`/repository/${repoId}/files?path=${encodeURIComponent(f)}`) }}
+                    >
+                      View
+                    </button>
                   </div>
                 ))}
               </div>
@@ -653,7 +663,7 @@ export default function ArchitecturePage() {
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                 {archData.components.map((comp) => (
-                  <ComponentCard key={comp.name} comp={comp} />
+                  <ComponentCard key={comp.name} comp={comp} repoId={repo.id} />
                 ))}
               </div>
             </div>

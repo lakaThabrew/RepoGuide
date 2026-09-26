@@ -303,3 +303,43 @@ export const generateSetupGuide = (id: string) =>
 
 export const getSetupGuide = (id: string) =>
   api.get<SetupGuideResponse>(`/repositories/${id}/setup`).then((r) => r.data)
+
+// ---------------------------------------------------------------------------
+// File Explorer APIs — Session 13
+// ---------------------------------------------------------------------------
+
+export interface RepositoryFileItem {
+  path: string
+  file_name: string
+  language?: string
+  extension: string
+  file_size: number
+  is_directory: boolean
+  category?: string
+}
+
+export interface RepositoryFileTree {
+  repository_id: string
+  files: RepositoryFileItem[]
+  total_files: number
+}
+
+export interface FileContentResponse {
+  path: string
+  file_name: string
+  language?: string
+  extension: string
+  file_size: number
+  content?: string
+  truncated: boolean
+  is_binary: boolean
+  error?: string
+}
+
+export const listRepositoryFiles = (id: string) =>
+  api.get<RepositoryFileTree>(`/repositories/${id}/files`).then((r) => r.data)
+
+export const getFileContent = (id: string, path: string) =>
+  api
+    .get<FileContentResponse>(`/repositories/${id}/files/content`, { params: { path } })
+    .then((r) => r.data)

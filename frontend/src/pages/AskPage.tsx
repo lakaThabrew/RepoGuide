@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useOutletContext } from 'react-router-dom'
+import { useOutletContext, useNavigate } from 'react-router-dom'
 import { MessageSquare, Send, User, Bot, FileCode2, Info } from 'lucide-react'
 import { askQuestion } from '../services/api'
 import type { Repository, QuestionResponse, QuestionEvidenceItem } from '../services/api'
@@ -28,6 +28,7 @@ const SUGGESTED = [
 
 export default function AskPage() {
   const { repo } = useOutletContext<Ctx>()
+  const navigate = useNavigate()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -109,12 +110,21 @@ export default function AskPage() {
                 <div className="file-refs mt-3">
                   <p className="text-xs text-muted mb-1">Evidence references</p>
                   {msg.evidence.map((e, j) => (
-                    <div key={j} className="file-ref">
-                      <FileCode2 size={11} />
-                      <span className="file-ref-path">{e.file_path}</span>
-                      {e.reason && (
-                        <span className="file-ref-reason text-xs text-muted"> — {e.reason}</span>
-                      )}
+                    <div key={j} className="file-ref" style={{ justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.3rem', flex: 1, minWidth: 0 }}>
+                        <FileCode2 size={11} />
+                        <span className="file-ref-path">{e.file_path}</span>
+                        {e.reason && (
+                          <span className="file-ref-reason text-xs text-muted"> — {e.reason}</span>
+                        )}
+                      </div>
+                      <button
+                        className="btn btn-outline"
+                        style={{ fontSize: '0.65rem', padding: '0.1rem 0.4rem', height: 'auto', flexShrink: 0, marginLeft: '0.5rem' }}
+                        onClick={() => navigate(`/repository/${repo.id}/files?path=${encodeURIComponent(e.file_path)}`)}
+                      >
+                        View
+                      </button>
                     </div>
                   ))}
                 </div>

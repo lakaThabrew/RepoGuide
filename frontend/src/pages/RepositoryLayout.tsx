@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { Zap, LayoutDashboard, GitBranch, Terminal, MessageSquare, Sparkles, ExternalLink } from 'lucide-react'
+import { Zap, LayoutDashboard, GitBranch, Terminal, MessageSquare, Sparkles, ExternalLink, FolderOpen } from 'lucide-react'
 import { getRepository } from '../services/api'
 import type { Repository } from '../services/api'
 import './RepositoryLayout.css'
@@ -8,6 +8,7 @@ import './RepositoryLayout.css'
 const NAV_ITEMS = [
   { to: '', label: 'Overview', icon: LayoutDashboard, end: true },
   { to: 'architecture', label: 'Architecture', icon: GitBranch },
+  { to: 'files', label: 'Files', icon: FolderOpen },
   { to: 'setup', label: 'Setup Guide', icon: Terminal },
   { to: 'ask', label: 'Ask RepoGuide', icon: MessageSquare },
   { to: 'contribution', label: 'First Contribution', icon: Sparkles },
