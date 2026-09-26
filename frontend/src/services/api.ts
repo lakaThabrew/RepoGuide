@@ -18,16 +18,87 @@ export interface Repository {
   updated_at?: string
 }
 
-export interface Analysis {
+// ---------------------------------------------------------------------------
+// Analysis — mirrors backend/app/schemas/analysis.py exactly
+// ---------------------------------------------------------------------------
+
+export interface FileEvidence {
+  file_path: string
+  reason: string
+  symbol?: string
+  confidence: 'high' | 'medium' | 'low'
+  category?: string
+}
+
+export interface EntryPoint {
+  file_path: string
+  kind: string
+  symbol?: string
+  evidence: string
+}
+
+export interface Dependency {
+  name: string
+  version?: string
+  kind: 'runtime' | 'dev' | 'unknown'
+  source_file: string
+}
+
+export interface RouteEvidence {
+  method?: string
+  path?: string
+  file_path: string
+  symbol?: string
+  evidence: string
+}
+
+export interface ArchitectureComponent {
+  name: string
+  description: string
+  evidence_files: string[]
+}
+
+export interface TechnologyFindings {
+  languages: string[]
+  frameworks: string[]
+  runtimes: string[]
+  package_managers: string[]
+  databases: string[]
+  auth_signals: FileEvidence[]
+  test_files: string[]
+  config_files: string[]
+  deployment_files: string[]
+  dev_commands: string[]
+  api_routes: RouteEvidence[]
+  backend_components: string[]
+  frontend_components: string[]
+  important_directories: string[]
+  source_directories: string[]
+  test_directories: string[]
+  doc_directories: string[]
+  arch_components: ArchitectureComponent[]
+}
+
+export interface AnalysisResponse {
+  id?: string
   repository_id: string
   project_summary?: string
   architecture?: string
   setup_guide?: string
-  important_files?: Array<{ path: string; purpose: string }>
-  technologies?: string[]
-  entry_points?: string[]
-  dependencies?: string[]
+  important_files?: FileEvidence[]
+  technologies?: TechnologyFindings
+  entry_points?: EntryPoint[]
+  dependencies?: Dependency[]
+  created_at?: string
+}
+
+export interface AnalysisTriggerResponse {
+  message: string
+  repository_id: string
   status: string
+  analysis_id?: string
+  evidence_quality?: string
+  error?: string
 }
 
 export interface QuestionResponse {
@@ -59,10 +130,10 @@ export const getRepository = (id: string) =>
 
 // Analysis APIs
 export const startAnalysis = (id: string) =>
-  api.post(`/repositories/${id}/analyze`).then((r) => r.data)
+  api.post<AnalysisTriggerResponse>(`/repositories/${id}/analyze`).then((r) => r.data)
 
 export const getAnalysis = (id: string) =>
-  api.get<Analysis>(`/repositories/${id}/analysis`).then((r) => r.data)
+  api.get<AnalysisResponse>(`/repositories/${id}/analysis`).then((r) => r.data)
 
 // Q&A API
 export const askQuestion = (id: string, question: string) =>
