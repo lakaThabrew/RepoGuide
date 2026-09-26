@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams, NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { Zap, LayoutDashboard, GitBranch, Terminal, MessageSquare, Sparkles, ArrowLeft, ExternalLink } from 'lucide-react'
+import { Zap, LayoutDashboard, GitBranch, Terminal, MessageSquare, Sparkles, ExternalLink } from 'lucide-react'
 import { getRepository } from '../services/api'
 import type { Repository } from '../services/api'
 import './RepositoryLayout.css'

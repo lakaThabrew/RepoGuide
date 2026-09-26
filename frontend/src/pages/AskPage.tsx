@@ -1,22 +1,29 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
-import { MessageSquare, Send, User, Bot, FileCode2 } from 'lucide-react'
+import { MessageSquare, Send, User, Bot, FileCode2, Info } from 'lucide-react'
 import { askQuestion } from '../services/api'
-import type { Repository, QuestionResponse } from '../services/api'
+import type { Repository, QuestionResponse, QuestionEvidenceItem } from '../services/api'
 import './SubPages.css'
 
 interface Ctx { repo: Repository }
+
 interface Message {
   role: 'user' | 'assistant'
   content: string
-  referencedFiles?: string[]
+  evidence?: QuestionEvidenceItem[]
+  intent?: string
+  isDeterministic?: boolean
 }
 
 const SUGGESTED = [
-  'What is the main entry point?',
+  'Where does this application start?',
+  'How is authentication handled?',
+  'What should I read first?',
+  'Where is the database logic?',
+  'How are the frontend and backend connected?',
   'What technologies does this project use?',
-  'How does authentication work?',
-  'What are the most important files?',
+  'Where are the tests?',
+  'How do I run this project?',
 ]
 
 export default function AskPage() {
@@ -36,12 +43,30 @@ export default function AskPage() {
       const res: QuestionResponse = await askQuestion(repo.id, question.trim())
       const botMsg: Message = {
         role: 'assistant',
-        content: res.answer || '⚠️ AI integration is not yet connected. This will work once IBM Bob 2.0 is integrated during the hackathon.',
-        referencedFiles: res.referenced_files,
+        content: res.answer || 'No answer could be generated from the available repository metadata.',
+        evidence: res.evidence && res.evidence.length > 0 ? res.evidence : (
+          res.referenced_files && res.referenced_files.length > 0
+            ? res.referenced_files.map((f) => ({ file_path: f }))
+            : []
+        ),
+        intent: res.intent,
+        isDeterministic: res.is_deterministic,
       }
       setMessages((m) => [...m, botMsg])
-    } catch {
-      setMessages((m) => [...m, { role: 'assistant', content: '❌ Failed to get a response. Is the backend running?' }])
+    } catch (err: unknown) {
+      const status = (err as { response?: { status?: number; data?: { detail?: string } } })?.response?.status
+      const detail = (err as { response?: { status?: number; data?: { detail?: string } } })?.response?.data?.detail
+      let errorMsg = '❌ Failed to get a response. Is the backend running?'
+      if (status === 404) {
+        errorMsg = detail?.includes('analysis')
+          ? '⚠️ No analysis found for this repository. Please run the analysis first.'
+          : '⚠️ Repository not found.'
+      } else if (status === 400) {
+        errorMsg = `⚠️ ${detail || 'Invalid question.'}`
+      } else if (status === 422) {
+        errorMsg = '⚠️ Question is too long or empty.'
+      }
+      setMessages((m) => [...m, { role: 'assistant', content: errorMsg }])
     } finally {
       setLoading(false)
     }
@@ -52,10 +77,10 @@ export default function AskPage() {
       <header className="sub-header">
         <div className="page-icon"><MessageSquare size={22} /></div>
         <h1>Ask RepoGuide</h1>
-        <p className="text-secondary mt-2">Ask anything about this repository.</p>
+        <p className="text-secondary mt-2">Ask anything about this repository — answers are grounded in indexed metadata.</p>
       </header>
 
-      {/* Suggested questions */}
+      {/* Suggested questions — shown only when no conversation yet */}
       {messages.length === 0 && (
         <div className="suggested-wrap">
           <p className="text-xs text-muted mb-3">Suggested questions</p>
@@ -78,12 +103,33 @@ export default function AskPage() {
             </div>
             <div className="chat-bubble">
               <p className="text-sm" style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</p>
-              {msg.referencedFiles && msg.referencedFiles.length > 0 && (
+
+              {/* Evidence / referenced files */}
+              {msg.evidence && msg.evidence.length > 0 && (
                 <div className="file-refs mt-3">
-                  <p className="text-xs text-muted mb-1">Referenced files</p>
-                  {msg.referencedFiles.map((f) => (
-                    <span key={f} className="file-ref"><FileCode2 size={11} /> {f}</span>
+                  <p className="text-xs text-muted mb-1">Evidence references</p>
+                  {msg.evidence.map((e, j) => (
+                    <div key={j} className="file-ref">
+                      <FileCode2 size={11} />
+                      <span className="file-ref-path">{e.file_path}</span>
+                      {e.reason && (
+                        <span className="file-ref-reason text-xs text-muted"> — {e.reason}</span>
+                      )}
+                    </div>
                   ))}
+                </div>
+              )}
+
+              {/* Source badge */}
+              {msg.role === 'assistant' && msg.isDeterministic !== undefined && (
+                <div className="answer-meta mt-2">
+                  <span className="badge badge-muted">
+                    <Info size={10} />
+                    {msg.isDeterministic ? ' Deterministic (metadata-grounded)' : ' AI-generated'}
+                  </span>
+                  {msg.intent && msg.intent !== 'general' && msg.intent !== 'unknown' && (
+                    <span className="badge badge-muted ml-1">intent: {msg.intent.replace(/_/g, ' ')}</span>
+                  )}
                 </div>
               )}
             </div>

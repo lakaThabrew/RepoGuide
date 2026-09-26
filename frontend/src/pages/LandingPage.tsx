@@ -1,6 +1,6 @@
-import React, { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { GitFork, Sparkles, ArrowRight, BookOpen, GitBranch, MessageSquare, Zap } from 'lucide-react'
+import { GitFork, Sparkles, ArrowRight, BookOpen, GitBranch, MessageSquare } from 'lucide-react'
 import { createRepository } from '../services/api'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
@@ -125,13 +125,13 @@ export default function LandingPage() {
             { n: '03', t: 'Explore Dashboard' },
             { n: '04', t: 'Make First Contribution' },
           ].map(({ n, t }, i) => (
-            <React.Fragment key={n}>
+            <Fragment key={n}>
               <div className="how-mini-step">
                 <span className="how-mini-num">{n}</span>
                 <span className="how-mini-label">{t}</span>
               </div>
               {i < 3 && <div className="how-mini-arrow"><ArrowRight size={20} /></div>}
-            </React.Fragment>
+            </Fragment>
           ))}
         </div>
       </section>

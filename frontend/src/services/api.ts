@@ -101,24 +101,81 @@ export interface AnalysisTriggerResponse {
   error?: string
 }
 
+export interface QuestionEvidenceItem {
+  file_path: string
+  reason?: string
+  category?: string
+}
+
 export interface QuestionResponse {
   repository_id: string
   question: string
   answer?: string
+  evidence: QuestionEvidenceItem[]
   referenced_files: string[]
+  is_deterministic: boolean
+  intent?: string
   status: string
 }
 
-export interface Contribution {
+// ---------------------------------------------------------------------------
+// Contribution APIs — mirrors backend/app/schemas/contribution.py
+// ---------------------------------------------------------------------------
+
+export type ContributionType =
+  | 'documentation'
+  | 'testing'
+  | 'developer_experience'
+  | 'maintenance'
+  | 'feature'
+
+export type Difficulty = 'beginner' | 'intermediate' | 'advanced'
+export type Impact = 'low' | 'medium' | 'high'
+export type Confidence = 'high' | 'medium' | 'low'
+
+export interface FileToRead {
+  file_path: string
+  reason: string
+}
+
+export interface ContributionEvidence {
+  observation: string
+  source: string
+}
+
+export interface ContributionCandidate {
+  id: string
+  title: string
+  description: string
+  type: ContributionType
+  difficulty: Difficulty
+  impact: Impact
+  confidence: Confidence
+  why_good_first_contribution: string
+  files_to_read: FileToRead[]
+  related_components: string[]
+  evidence: ContributionEvidence[]
+  suggested_steps: string[]
+}
+
+export interface ContributionResponse {
   repository_id: string
-  title?: string
-  description?: string
-  difficulty?: string
-  why_suitable?: string
-  relevant_files: string[]
-  implementation_steps: string[]
-  tests_to_add: string[]
+  candidates: ContributionCandidate[]
+  recommended_ids: string[]
+  is_deterministic: boolean
+  analysis_id?: string
+  generated_at?: string
+  evidence_quality?: string
   status: string
+  error?: string
+}
+
+export interface ContributionGenerateResponse {
+  message: string
+  repository_id: string
+  status: string
+  candidates_count?: number
+  error?: string
 }
 
 // Repository APIs
@@ -140,8 +197,8 @@ export const askQuestion = (id: string, question: string) =>
   api.post<QuestionResponse>(`/repositories/${id}/questions`, { question }).then((r) => r.data)
 
 // Contribution APIs
-export const generateContribution = (id: string) =>
-  api.post(`/repositories/${id}/contributions/generate`).then((r) => r.data)
+export const generateContributions = (id: string) =>
+  api.post<ContributionGenerateResponse>(`/repositories/${id}/contributions/generate`).then((r) => r.data)
 
 export const getContributions = (id: string) =>
-  api.get<Contribution>(`/repositories/${id}/contributions`).then((r) => r.data)
+  api.get<ContributionResponse>(`/repositories/${id}/contributions`).then((r) => r.data)
