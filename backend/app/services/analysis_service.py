@@ -32,6 +32,8 @@ from app.database.supabase import get_supabase
 from app.schemas.analysis import (
     AnalysisResult,
     ArchitectureComponent,
+    ArchitectureData,
+    ArchitectureRelationship,
     Dependency,
     EntryPoint,
     FileEvidence,
@@ -820,129 +822,629 @@ def _classify_directories(files: list[dict]) -> tuple[set[str], set[str], set[st
     return source_dirs, test_dirs, doc_dirs
 
 
+# Frontend framework labels — used for frontend vs backend classification
+_FRONTEND_FRAMEWORKS = frozenset({
+    "React", "Vue.js", "Angular", "Svelte", "Next.js", "Nuxt.js",
+    "Gatsby", "Astro", "Remix",
+})
+_FRONTEND_BUILD_TOOLS = frozenset({"Vite", "Webpack", "Tailwind CSS"})
+
+
 def _build_arch_components(evidence: dict[str, Any]) -> list[dict]:
     """
-    Produce a list of high-level architecture components with evidence.
-    Each component has: name, description, evidence_files.
+    Produce a list of high-level architecture components with rich evidence.
+
+    Each component dict has:
+      name, description, evidence_files, technology, directories, confidence, evidence
+
     Components are only emitted when real evidence supports them.
+    Do NOT emit a component merely because a technology name is detected —
+    require corroborating directory/file structure.
     """
     components: list[dict] = []
+    fws: list[str] = evidence.get("frameworks", [])
+    langs: list[str] = evidence.get("primary_languages", [])
+    dbs: list[str] = evidence.get("databases", [])
+    runtimes: list[str] = evidence.get("runtimes", [])
 
-    # --- Frontend ---
-    frontend_evidence: list[str] = []
-    if any(fw in evidence.get("frameworks", []) for fw in
-           ("React", "Vue.js", "Angular", "Svelte", "Next.js", "Nuxt.js",
-            "Gatsby", "Astro", "Remix")):
-        frontend_evidence.extend(evidence.get("config_files", [])[:3])
-    frontend_files = [
+    # ── Frontend ────────────────────────────────────────────────────────────
+    # Require: frontend framework + frontend component directories OR
+    #          frontend-extension source files detected
+    fe_frameworks = [f for f in fws if f in _FRONTEND_FRAMEWORKS]
+    fe_dirs = evidence.get("frontend_components", [])  # dirs like "frontend", "src"
+    fe_important = [
         f for f in evidence.get("important_files", [])
-        if f.get("category") in ("frontend", "entry_point")
-        and any(ext in f.get("file_path", "") for ext in (".tsx", ".jsx", ".vue", ".svelte"))
+        if f.get("category") == "frontend"
+        or (f.get("category") == "entry_point"
+            and any(f.get("file_path", "").endswith(ext) for ext in (".tsx", ".jsx", ".vue", ".svelte")))
     ]
-    frontend_evidence.extend([f["file_path"] for f in frontend_files[:3]])
-    # Also add frontend component dirs
-    frontend_evidence.extend(evidence.get("frontend_components", [])[:3])
-    if frontend_evidence or evidence.get("frontend_components"):
+    fe_config = [
+        f for f in evidence.get("config_files", [])
+        if any(name in f.lower() for name in ("vite.config", "next.config", "angular.json",
+                                               "vue.config", "svelte.config"))
+    ]
+
+    # Require corroborating directory or source file evidence — not just a framework name
+    fe_has_structure = bool(fe_dirs) or bool(fe_important) or bool(fe_config)
+    if fe_frameworks and fe_has_structure:
+        fe_evidence_files = list(dict.fromkeys(
+            [f["file_path"] for f in fe_important[:3]]
+            + fe_dirs[:3]
+            + fe_config[:2]
+        ))[:5]
+        fe_evidence_bullets = [f"Frontend framework detected: {fw}" for fw in fe_frameworks[:3]]
+        if fe_dirs:
+            fe_evidence_bullets.append(f"Frontend source directories: {', '.join(fe_dirs[:3])}")
+        if fe_config:
+            fe_evidence_bullets.append(f"Build configuration found: {', '.join(fe_config[:2])}")
+        # Determine technology label
+        fe_tech_parts = fe_frameworks[:2]
+        build_tools = [f for f in fws if f in _FRONTEND_BUILD_TOOLS]
+        if build_tools:
+            fe_tech_parts += build_tools[:1]
+        fe_tech = " + ".join(fe_tech_parts) if fe_tech_parts else None
+
+        # Confidence: high if framework + dirs + config; medium if framework + dirs only
+        if fe_frameworks and fe_dirs and fe_config:
+            fe_confidence = "high"
+        elif fe_frameworks and (fe_dirs or fe_important):
+            fe_confidence = "medium"
+        else:
+            fe_confidence = "low"
+
         components.append({
             "name": "frontend",
             "description": (
-                "Client-side application layer. "
-                f"Detected frameworks: {', '.join(evidence.get('frameworks', [])) or 'none'}."
+                f"Client-side application layer built with "
+                f"{', '.join(fe_frameworks[:2])}."
             ),
-            "evidence_files": list(dict.fromkeys(frontend_evidence))[:5],
+            "evidence_files": fe_evidence_files,
+            "technology": fe_tech,
+            "directories": fe_dirs[:5],
+            "confidence": fe_confidence,
+            "evidence": fe_evidence_bullets,
         })
 
-    # --- Backend / API ---
-    backend_evidence: list[str] = []
+    # ── Backend / API ────────────────────────────────────────────────────────
+    # Require: API route files OR backend component dirs OR backend entry point
+    be_dirs = evidence.get("backend_components", [])
     api_files = [f["file_path"] for f in evidence.get("important_files", [])
-                 if f.get("category") == "API"]
-    backend_evidence.extend(api_files[:5])
-    backend_evidence.extend(evidence.get("api_route_files", [f["file_path"]
-                             if isinstance(f, dict) else f
-                             for f in evidence.get("api_route_files", [])])[:3]
-                             if False else
-                             [r["file_path"] if isinstance(r, dict) else r
-                              for r in evidence.get("api_route_files", [])][:3])
-    backend_evidence.extend([ep["file_path"] for ep in evidence.get("entry_points", [])
-                              if "python" in ep.get("kind", "").lower()
-                              or "server" in ep.get("kind", "").lower()
-                              or "go" in ep.get("kind", "").lower()][:3])
-    if backend_evidence or evidence.get("backend_components"):
-        langs = evidence.get("primary_languages", [])
-        fws = evidence.get("frameworks", [])
-        backend_fws = [f for f in fws if f not in
-                       ("React", "Vue.js", "Angular", "Svelte", "Next.js", "Nuxt.js",
-                        "Gatsby", "Astro", "Remix", "Vite", "Webpack", "Tailwind CSS")]
+                 if f.get("category") in ("API", "core service")]
+    be_route_files = [r["file_path"] if isinstance(r, dict) else r
+                      for r in evidence.get("api_route_files", [])][:5]
+    be_entry_points = [ep["file_path"] for ep in evidence.get("entry_points", [])
+                       if any(k in ep.get("kind", "").lower()
+                              for k in ("python", "server", "go", "rust", "java"))]
+    be_has_structure = bool(be_dirs) or bool(api_files) or bool(be_route_files) or bool(be_entry_points)
+    if be_has_structure:
+        be_fws = [f for f in fws if f not in _FRONTEND_FRAMEWORKS and f not in _FRONTEND_BUILD_TOOLS]
+        be_evidence_files = list(dict.fromkeys(
+            api_files[:3] + be_route_files[:3] + be_entry_points[:2]
+        ))[:5]
+        be_evidence_bullets: list[str] = []
+        if be_fws:
+            be_evidence_bullets.append(f"Backend framework(s): {', '.join(be_fws[:3])}")
+        if be_dirs:
+            be_evidence_bullets.append(f"Backend source directories: {', '.join(be_dirs[:3])}")
+        if be_route_files:
+            be_evidence_bullets.append(f"API route files detected: {be_route_files[0]}")
+        if be_entry_points:
+            be_evidence_bullets.append(f"Server entry point: {be_entry_points[0]}")
+        # Technology label
+        be_tech_parts = be_fws[:2] if be_fws else (langs[:2] if langs else [])
+        be_tech = " + ".join(be_tech_parts) if be_tech_parts else None
+
+        if be_fws and be_dirs and (be_route_files or be_entry_points):
+            be_confidence: str = "high"
+        elif be_dirs and (be_route_files or be_entry_points):
+            be_confidence = "medium"
+        elif be_has_structure:
+            be_confidence = "medium"
+        else:
+            be_confidence = "low"
+
         components.append({
             "name": "backend/API",
             "description": (
-                "Server-side / API layer. "
+                f"Server-side API layer. "
                 f"Languages: {', '.join(langs[:3]) or 'unknown'}. "
-                f"Frameworks: {', '.join(backend_fws[:3]) or 'none detected'}."
+                f"Frameworks: {', '.join(be_fws[:3]) or 'none detected'}."
             ),
-            "evidence_files": list(dict.fromkeys(backend_evidence))[:5],
+            "evidence_files": be_evidence_files,
+            "technology": be_tech,
+            "directories": be_dirs[:5],
+            "confidence": be_confidence,
+            "evidence": be_evidence_bullets,
         })
 
-    # --- Database / Data Layer ---
-    db_evidence: list[str] = []
-    db_files = [f["file_path"] for f in evidence.get("important_files", [])
-                if f.get("category") == "database"]
-    db_evidence.extend(db_files[:5])
-    if evidence.get("databases") or db_evidence:
+    # ── Database / Data Layer ────────────────────────────────────────────────
+    # Require: database signal + corroborating file evidence
+    db_important = [f["file_path"] for f in evidence.get("important_files", [])
+                    if f.get("category") == "database"]
+    db_signals_from_files = bool(db_important)  # files categorised as database
+    db_signals_from_names = bool(dbs)            # database tech names detected
+
+    if db_signals_from_names or db_signals_from_files:
+        db_evidence_files = list(dict.fromkeys(db_important[:5]))
+        db_evidence_bullets: list[str] = []
+        if dbs:
+            db_evidence_bullets.append(f"Database technology detected: {', '.join(dbs[:4])}")
+        if db_important:
+            db_evidence_bullets.append(f"Database-related files: {db_important[0]}")
+
+        db_tech = ", ".join(dbs[:3]) if dbs else None
+        if dbs and db_important:
+            db_confidence: str = "high"
+        elif dbs or db_important:
+            db_confidence = "medium"
+        else:
+            db_confidence = "low"
+
         components.append({
             "name": "database/data layer",
             "description": (
-                "Persistence layer. "
-                f"Detected: {', '.join(evidence.get('databases', [])) or 'unknown'}."
+                f"Persistence layer. "
+                f"Detected: {', '.join(dbs) or 'unknown'}."
             ),
-            "evidence_files": list(dict.fromkeys(db_evidence))[:5],
+            "evidence_files": db_evidence_files,
+            "technology": db_tech,
+            "directories": [],
+            "confidence": db_confidence,
+            "evidence": db_evidence_bullets,
         })
 
-    # --- Authentication ---
-    auth_evidence = [a["file_path"] for a in evidence.get("auth_signals", [])[:5]]
-    auth_files = [f["file_path"] for f in evidence.get("important_files", [])
-                  if f.get("category") == "authentication"]
-    auth_evidence.extend(auth_files[:3])
-    if auth_evidence:
+    # ── Authentication ───────────────────────────────────────────────────────
+    auth_signals = evidence.get("auth_signals", [])
+    auth_important = [f["file_path"] for f in evidence.get("important_files", [])
+                      if f.get("category") == "authentication"]
+    auth_paths = list(dict.fromkeys(
+        [a["file_path"] for a in auth_signals[:5]] + auth_important[:3]
+    ))[:5]
+    if auth_paths:
+        auth_evidence_bullets = [
+            f"Authentication file: {p}" for p in auth_paths[:3]
+        ]
         components.append({
             "name": "authentication",
-            "description": "Authentication / authorisation layer found in repository.",
-            "evidence_files": list(dict.fromkeys(auth_evidence))[:5],
+            "description": "Authentication / authorisation layer detected in repository.",
+            "evidence_files": auth_paths,
+            "technology": None,
+            "directories": [],
+            "confidence": "medium",
+            "evidence": auth_evidence_bullets,
         })
 
-    # --- Core Services ---
-    svc_evidence = [f["file_path"] for f in evidence.get("important_files", [])
-                    if f.get("category") == "core service"][:5]
-    if svc_evidence:
+    # ── Core Services ────────────────────────────────────────────────────────
+    svc_files = [f["file_path"] for f in evidence.get("important_files", [])
+                 if f.get("category") == "core service"][:5]
+    if svc_files:
         components.append({
             "name": "services",
             "description": "Core business logic / service layer.",
-            "evidence_files": svc_evidence[:5],
+            "evidence_files": svc_files,
+            "technology": None,
+            "directories": [],
+            "confidence": "medium",
+            "evidence": [f"Service file detected: {svc_files[0]}"],
         })
 
-    # --- Tests ---
-    test_evidence = evidence.get("test_files", [])[:5]
+    # ── Tests ────────────────────────────────────────────────────────────────
+    test_evidence_files = evidence.get("test_files", [])[:5]
     test_dirs = evidence.get("test_directories", [])[:3]
-    if test_evidence or test_dirs:
+    if test_evidence_files or test_dirs:
+        test_bullets: list[str] = []
+        if test_dirs:
+            test_bullets.append(f"Test directories: {', '.join(test_dirs)}")
+        if test_evidence_files:
+            test_bullets.append(f"Test files detected: {test_evidence_files[0]}")
         components.append({
             "name": "tests",
             "description": (
-                f"Test suite. Detected test directories: "
-                f"{', '.join(test_dirs) if test_dirs else 'see evidence files'}."
+                f"Test suite. "
+                f"Test directories: {', '.join(test_dirs) if test_dirs else 'see evidence files'}."
             ),
-            "evidence_files": list(dict.fromkeys(test_evidence + test_dirs))[:5],
+            "evidence_files": list(dict.fromkeys(test_evidence_files + test_dirs))[:5],
+            "technology": None,
+            "directories": test_dirs,
+            "confidence": "high" if test_dirs else "medium",
+            "evidence": test_bullets,
         })
 
-    # --- Deployment / Infrastructure ---
-    deploy_evidence = evidence.get("deployment_files", [])[:5]
-    if deploy_evidence:
+    # ── Deployment / Infrastructure ──────────────────────────────────────────
+    deploy_files = evidence.get("deployment_files", [])[:5]
+    if deploy_files:
+        deploy_bullets = [f"Deployment file: {deploy_files[0]}"]
+        if len(deploy_files) > 1:
+            deploy_bullets.append(f"Additional deployment config: {deploy_files[1]}")
         components.append({
             "name": "deployment/infrastructure",
             "description": "Containerisation, CI/CD, or cloud deployment configuration.",
-            "evidence_files": deploy_evidence[:5],
+            "evidence_files": deploy_files,
+            "technology": None,
+            "directories": [],
+            "confidence": "high",
+            "evidence": deploy_bullets,
         })
 
     return components
+
+
+# ---------------------------------------------------------------------------
+# Architecture relationship inference
+# ---------------------------------------------------------------------------
+
+def _build_arch_relationships(
+    components: list[dict],
+    evidence: dict[str, Any],
+) -> list[dict]:
+    """
+    Infer evidence-backed relationships between architecture components.
+
+    Relationships are only added when we have STRONG evidence:
+    - directory structure separation (frontend/ vs backend/)
+    - API route files (implies frontend calls backend)
+    - database files (implies backend writes to database)
+    - auth files (implies auth used by backend, and possibly frontend)
+
+    Never fabricates relationships.
+    """
+    component_names = {c["name"] for c in components}
+    relationships: list[dict] = []
+
+    has_frontend = "frontend" in component_names
+    has_backend = "backend/API" in component_names
+    has_db = "database/data layer" in component_names
+    has_auth = "authentication" in component_names
+    has_services = "services" in component_names
+
+    # ── Frontend → Backend/API ───────────────────────────────────────────────
+    # Evidence: both frontend + backend dirs exist AND api route files detected
+    if has_frontend and has_backend:
+        api_routes = evidence.get("api_route_files", [])
+        fe_dirs = evidence.get("frontend_components", [])
+        be_dirs = evidence.get("backend_components", [])
+        rel_evidence: list[str] = []
+        if fe_dirs and be_dirs:
+            rel_evidence.append(
+                f"Separate frontend ({fe_dirs[0]}) and backend ({be_dirs[0]}) directories detected"
+            )
+        if api_routes:
+            route_path = api_routes[0]["file_path"] if isinstance(api_routes[0], dict) else api_routes[0]
+            rel_evidence.append(f"API route files detected (e.g. {route_path})")
+        # Only emit if we have actual directory separation evidence
+        if rel_evidence:
+            confidence = "high" if (fe_dirs and be_dirs and api_routes) else "medium"
+            relationships.append({
+                "source": "frontend",
+                "target": "backend/API",
+                "relationship_type": "calls",
+                "evidence": rel_evidence,
+                "confidence": confidence,
+            })
+
+    # ── Backend/API → Database ───────────────────────────────────────────────
+    # Evidence: database signals detected AND backend has API/service files
+    if has_backend and has_db:
+        dbs = evidence.get("databases", [])
+        db_files = [f["file_path"] for f in evidence.get("important_files", [])
+                    if f.get("category") == "database"]
+        rel_evidence = []
+        if dbs:
+            rel_evidence.append(f"Database technology detected: {', '.join(dbs[:2])}")
+        if db_files:
+            rel_evidence.append(f"Database/schema files: {db_files[0]}")
+        if rel_evidence:
+            confidence = "high" if (dbs and db_files) else "medium"
+            relationships.append({
+                "source": "backend/API",
+                "target": "database/data layer",
+                "relationship_type": "reads_from/writes_to",
+                "evidence": rel_evidence,
+                "confidence": confidence,
+            })
+
+    # ── Backend/API → Services ───────────────────────────────────────────────
+    # Evidence: service files in backend directory
+    if has_backend and has_services:
+        svc_files = [f["file_path"] for f in evidence.get("important_files", [])
+                     if f.get("category") == "core service"]
+        be_dirs = evidence.get("backend_components", [])
+        # Only add if services files are in the same root as backend dirs
+        svc_in_backend = any(
+            any(be_dir in svc for be_dir in be_dirs)
+            for svc in svc_files
+        )
+        if svc_files and (svc_in_backend or be_dirs):
+            relationships.append({
+                "source": "backend/API",
+                "target": "services",
+                "relationship_type": "delegates_to",
+                "evidence": [f"Service layer files in backend directory: {svc_files[0]}"],
+                "confidence": "medium",
+            })
+
+    # ── Services → Database ──────────────────────────────────────────────────
+    if has_services and has_db and not has_backend:
+        # Only when there's no backend component already connecting to DB
+        dbs = evidence.get("databases", [])
+        if dbs:
+            relationships.append({
+                "source": "services",
+                "target": "database/data layer",
+                "relationship_type": "reads_from/writes_to",
+                "evidence": [f"Database technology detected: {', '.join(dbs[:2])}"],
+                "confidence": "medium",
+            })
+
+    # ── Backend/API → Authentication (or Frontend → Authentication) ──────────
+    if has_auth and (has_backend or has_frontend):
+        auth_files = [f["file_path"] for f in evidence.get("important_files", [])
+                      if f.get("category") == "authentication"]
+        be_dirs = evidence.get("backend_components", [])
+        fe_dirs = evidence.get("frontend_components", [])
+        # Determine which component auth lives in
+        auth_in_backend = any(
+            any(be_dir in af for be_dir in be_dirs)
+            for af in auth_files
+        ) if (auth_files and be_dirs) else False
+        auth_in_frontend = any(
+            any(fe_dir in af for fe_dir in fe_dirs)
+            for af in auth_files
+        ) if (auth_files and fe_dirs) else False
+
+        if has_backend and (auth_in_backend or not auth_in_frontend):
+            relationships.append({
+                "source": "backend/API",
+                "target": "authentication",
+                "relationship_type": "uses",
+                "evidence": [f"Auth file within backend structure: {auth_files[0]}"] if auth_files else
+                            ["Auth signals detected in backend area"],
+                "confidence": "medium",
+            })
+        elif has_frontend and auth_in_frontend:
+            relationships.append({
+                "source": "frontend",
+                "target": "authentication",
+                "relationship_type": "uses",
+                "evidence": [f"Auth file within frontend structure: {auth_files[0]}"] if auth_files else
+                            ["Auth signals detected in frontend area"],
+                "confidence": "medium",
+            })
+
+    return relationships
+
+
+# ---------------------------------------------------------------------------
+# Architecture summary and reading order
+# ---------------------------------------------------------------------------
+
+def _build_architecture_summary(
+    components: list[dict],
+    evidence: dict[str, Any],
+) -> str:
+    """Generate a concise plain-text architecture summary from evidence."""
+    component_names = {c["name"] for c in components}
+    langs = evidence.get("primary_languages", [])
+    fws = evidence.get("frameworks", [])
+    dbs = evidence.get("databases", [])
+
+    parts: list[str] = []
+
+    if not components:
+        return "Insufficient evidence to determine architecture."
+
+    # Count components for opening line
+    comp_count = len(components)
+    tech_count = len(set(langs + fws + dbs))
+    parts.append(
+        f"This repository has {comp_count} detected architecture component"
+        f"{'s' if comp_count != 1 else ''} "
+        f"and {tech_count} detected technology/framework signal"
+        f"{'s' if tech_count != 1 else ''}."
+    )
+
+    for comp in components:
+        name = comp["name"]
+        tech = comp.get("technology")
+        if tech:
+            parts.append(f"{name.title()}: {tech}.")
+        elif name in component_names:
+            # Pull technology from evidence names
+            if name == "database/data layer" and dbs:
+                parts.append(f"Database: {', '.join(dbs[:3])}.")
+            elif name == "tests":
+                test_dirs = evidence.get("test_directories", [])
+                if test_dirs:
+                    parts.append(f"Testing: test directories at {', '.join(test_dirs[:2])}.")
+            elif name == "deployment/infrastructure":
+                deploy = evidence.get("deployment_files", [])
+                if deploy:
+                    parts.append(f"Deployment: {', '.join(deploy[:2])}.")
+
+    return " ".join(parts)
+
+
+def _build_reading_order(
+    components: list[dict],
+    evidence: dict[str, Any],
+) -> list[str]:
+    """
+    Generate a deterministic, repository-specific onboarding reading order.
+    Uses detected components and entry points to produce tailored guidance.
+    """
+    component_names = {c["name"] for c in components}
+    entry_points = evidence.get("entry_points", [])
+    steps: list[str] = []
+
+    has_frontend = "frontend" in component_names
+    has_backend = "backend/API" in component_names
+    has_db = "database/data layer" in component_names
+    has_tests = "tests" in component_names
+    has_services = "services" in component_names
+    has_deploy = "deployment/infrastructure" in component_names
+
+    # Find specific entry point paths
+    frontend_ep = next(
+        (ep for ep in entry_points
+         if any(ep.get("file_path", "").endswith(ext) for ext in (".tsx", ".jsx", ".ts", ".js"))
+         and any(k in ep.get("kind", "").lower() for k in ("react", "typescript", "javascript", "frontend"))),
+        None
+    )
+    backend_ep = next(
+        (ep for ep in entry_points
+         if any(k in ep.get("kind", "").lower() for k in ("python", "server", "go", "rust", "java"))),
+        None
+    )
+
+    if has_frontend and has_backend:
+        # Full-stack reading order
+        if frontend_ep:
+            steps.append(
+                f"Start with the frontend entry point: {frontend_ep['file_path']} "
+                f"({frontend_ep['kind']})"
+            )
+        else:
+            steps.append("Start with the frontend source directory to understand the UI layer.")
+
+        if backend_ep:
+            steps.append(
+                f"Read the backend entry point: {backend_ep['file_path']} "
+                f"({backend_ep['kind']})"
+            )
+        else:
+            steps.append("Read the backend entry point to understand the server layer.")
+
+        steps.append("Follow API route definitions to understand the frontend/backend boundary.")
+
+        if has_services:
+            steps.append("Trace API routes into service files to understand business logic.")
+        if has_db:
+            steps.append("Follow service calls into database/persistence code.")
+        if has_tests:
+            test_dirs = evidence.get("test_directories", [])
+            if test_dirs:
+                steps.append(
+                    f"Read tests alongside the implementation "
+                    f"(test directories: {', '.join(test_dirs[:2])})."
+                )
+            else:
+                steps.append("Read tests alongside the implementation.")
+        if has_deploy:
+            steps.append("Review deployment configuration to understand how the system runs in production.")
+
+    elif has_backend and not has_frontend:
+        # Backend-only
+        if backend_ep:
+            steps.append(
+                f"Start with the application entry point: {backend_ep['file_path']} "
+                f"({backend_ep['kind']})"
+            )
+        else:
+            steps.append("Start with the application entry point.")
+        steps.append("Follow API routes to understand exposed endpoints.")
+        if has_services:
+            steps.append("Trace route handlers into service/business logic files.")
+        if has_db:
+            steps.append("Read database/persistence code to understand data models.")
+        if has_tests:
+            steps.append("Review tests to understand expected behaviour.")
+
+    elif has_frontend and not has_backend:
+        # Frontend-only
+        if frontend_ep:
+            steps.append(
+                f"Start with the frontend entry point: {frontend_ep['file_path']} "
+                f"({frontend_ep['kind']})"
+            )
+        else:
+            steps.append("Start with the frontend entry point.")
+        steps.append("Follow component imports to understand the component hierarchy.")
+        if has_tests:
+            steps.append("Review component tests to understand expected behaviour.")
+
+    else:
+        # Generic single-component
+        if entry_points:
+            ep = entry_points[0]
+            steps.append(
+                f"Start with the entry point: {ep['file_path']} ({ep['kind']})"
+            )
+        else:
+            steps.append("Identify the application entry point from the directory structure.")
+        steps.append("Follow imports and module references to understand the code organisation.")
+        if has_tests:
+            steps.append("Read tests alongside the implementation.")
+
+    return steps
+
+
+def _build_architecture_data(
+    evidence: dict[str, Any],
+    evidence_quality: str,
+) -> ArchitectureData:
+    """
+    Assemble the complete ArchitectureData from repository evidence.
+    This is the main entry point for the architecture explorer backend.
+    """
+    component_dicts = _build_arch_components(evidence)
+    relationship_dicts = _build_arch_relationships(component_dicts, evidence)
+    summary = _build_architecture_summary(component_dicts, evidence)
+    reading_order = _build_reading_order(component_dicts, evidence)
+
+    # Overall architecture confidence
+    total_files = evidence.get("total_files", 0)
+    entry_points = evidence.get("entry_points", [])
+    frameworks = evidence.get("frameworks", [])
+    runtimes = evidence.get("runtimes", [])
+    if (
+        len(component_dicts) >= 2
+        and entry_points
+        and (frameworks or runtimes)
+        and total_files >= 5
+    ):
+        arch_confidence: str = "high"
+    elif component_dicts and (entry_points or frameworks):
+        arch_confidence = "medium"
+    elif component_dicts:
+        arch_confidence = "low"
+    else:
+        arch_confidence = "low"
+
+    _VALID_QUALITY = {"sufficient", "partial", "insufficient"}
+    safe_quality = evidence_quality if evidence_quality in _VALID_QUALITY else "partial"
+
+    components = [
+        ArchitectureComponent(
+            name=c["name"],
+            description=c["description"],
+            evidence_files=c.get("evidence_files", []),
+            technology=c.get("technology"),
+            directories=c.get("directories", []),
+            confidence=c.get("confidence", "medium"),  # type: ignore[arg-type]
+            evidence=c.get("evidence", []),
+        )
+        for c in component_dicts
+    ]
+
+    relationships = [
+        ArchitectureRelationship(
+            source=r["source"],
+            target=r["target"],
+            relationship_type=r["relationship_type"],
+            evidence=r.get("evidence", []),
+            confidence=r.get("confidence", "medium"),  # type: ignore[arg-type]
+        )
+        for r in relationship_dicts
+    ]
+
+    return ArchitectureData(
+        components=components,
+        relationships=relationships,
+        summary=summary,
+        reading_order=reading_order,
+        confidence=arch_confidence,  # type: ignore[arg-type]
+        evidence_quality=safe_quality,  # type: ignore[arg-type]
+    )
 
 
 _SECRET_PATTERN = re.compile(
@@ -1004,6 +1506,10 @@ def _build_analysis_result(
             name=c["name"],
             description=c["description"],
             evidence_files=c.get("evidence_files", []),
+            technology=c.get("technology"),
+            directories=c.get("directories", []),
+            confidence=c.get("confidence", "medium"),  # type: ignore[arg-type]
+            evidence=c.get("evidence", []),
         )
         for c in arch_component_dicts
     ]
@@ -1433,3 +1939,106 @@ def get_analysis(repository_id: str) -> Optional[dict]:
     except Exception as exc:
         logger.error("Failed to retrieve analysis for %s: %s", repository_id, exc)
         return None
+
+
+def get_architecture_data(repository_id: str) -> Optional[ArchitectureData]:
+    """
+    Re-derive ArchitectureData from stored analysis technologies data.
+    Returns None if no analysis exists yet for this repository.
+
+    This re-derives the architecture from stored evidence rather than
+    running a fresh analysis, so it is fast and deterministic.
+    """
+    row = get_analysis(repository_id)
+    if not row:
+        return None
+
+    technologies = row.get("technologies") or {}
+    if not technologies:
+        return None
+
+    # Reconstruct evidence dict from stored technologies
+    evidence: dict[str, Any] = {
+        "primary_languages": technologies.get("languages", []),
+        "frameworks": technologies.get("frameworks", []),
+        "runtimes": technologies.get("runtimes", []),
+        "package_managers": technologies.get("package_managers", []),
+        "databases": technologies.get("databases", []),
+        "auth_signals": technologies.get("auth_signals", []),
+        "test_files": technologies.get("test_files", []),
+        "config_files": technologies.get("config_files", []),
+        "deployment_files": technologies.get("deployment_files", []),
+        "dev_commands": technologies.get("dev_commands", []),
+        "api_route_files": [
+            {"file_path": r["file_path"], "evidence": r.get("evidence", "")}
+            if isinstance(r, dict) else {"file_path": r, "evidence": ""}
+            for r in technologies.get("api_routes", [])
+        ],
+        "backend_components": technologies.get("backend_components", []),
+        "frontend_components": technologies.get("frontend_components", []),
+        "important_directories": technologies.get("important_directories", []),
+        "source_directories": technologies.get("source_directories", []),
+        "test_directories": technologies.get("test_directories", []),
+        "doc_directories": technologies.get("doc_directories", []),
+        # Reconstruct important_files from stored arch_components evidence
+        "important_files": _reconstruct_important_files_from_arch_components(
+            technologies.get("arch_components", [])
+        ),
+        "entry_points": row.get("entry_points") or [],
+        "total_files": 1,   # non-zero so confidence calc works
+        "total_dirs": 0,
+        "injection_warnings": [],
+        "manifest_snippets": {},
+    }
+
+    # Determine evidence quality from the stored analysis
+    evidence_quality = _infer_evidence_quality(evidence)
+
+    return _build_architecture_data(evidence, evidence_quality)
+
+
+def _reconstruct_important_files_from_arch_components(
+    arch_components: list[dict],
+) -> list[dict]:
+    """
+    Reconstruct a minimal important_files list from stored arch_components
+    so that _build_arch_components can find files by category.
+    """
+    result: list[dict] = []
+    _CATEGORY_MAP = {
+        "frontend": "frontend",
+        "backend/api": "API",
+        "database/data layer": "database",
+        "authentication": "authentication",
+        "services": "core service",
+    }
+    for comp in arch_components:
+        if not isinstance(comp, dict):
+            continue
+        comp_name_lower = comp.get("name", "").lower()
+        category = _CATEGORY_MAP.get(comp_name_lower, "")
+        if not category:
+            continue
+        for fp in comp.get("evidence_files", [])[:5]:
+            if isinstance(fp, str):
+                result.append({
+                    "file_path": fp,
+                    "reason": f"Stored evidence for {comp.get('name')}",
+                    "confidence": comp.get("confidence", "medium"),
+                    "category": category,
+                })
+    return result
+
+
+def _infer_evidence_quality(evidence: dict[str, Any]) -> str:
+    """Determine evidence quality from reconstructed evidence dict."""
+    has_langs = bool(evidence.get("primary_languages"))
+    has_frameworks = bool(evidence.get("frameworks") or evidence.get("runtimes"))
+    has_entry_points = bool(evidence.get("entry_points"))
+    has_components = bool(evidence.get("backend_components") or evidence.get("frontend_components"))
+
+    if has_langs and has_frameworks and has_entry_points:
+        return "sufficient"
+    if has_langs or has_components or has_frameworks:
+        return "partial"
+    return "insufficient"

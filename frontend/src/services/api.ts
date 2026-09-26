@@ -56,6 +56,34 @@ export interface ArchitectureComponent {
   name: string
   description: string
   evidence_files: string[]
+  technology?: string
+  directories: string[]
+  confidence: 'high' | 'medium' | 'low'
+  evidence: string[]
+}
+
+export interface ArchitectureRelationship {
+  source: string
+  target: string
+  relationship_type: string
+  evidence: string[]
+  confidence: 'high' | 'medium' | 'low'
+}
+
+export interface ArchitectureData {
+  components: ArchitectureComponent[]
+  relationships: ArchitectureRelationship[]
+  summary: string
+  reading_order: string[]
+  confidence: 'high' | 'medium' | 'low'
+  evidence_quality: 'sufficient' | 'partial' | 'insufficient'
+}
+
+export interface ArchitectureResponse {
+  repository_id: string
+  architecture_data?: ArchitectureData
+  status: string
+  message?: string
 }
 
 export interface TechnologyFindings {
@@ -264,6 +292,10 @@ export const generateContributions = (id: string) =>
 
 export const getContributions = (id: string) =>
   api.get<ContributionResponse>(`/repositories/${id}/contributions`).then((r) => r.data)
+
+// Architecture API
+export const getArchitecture = (id: string) =>
+  api.get<ArchitectureResponse>(`/repositories/${id}/architecture`).then((r) => r.data)
 
 // Setup Guide APIs
 export const generateSetupGuide = (id: string) =>

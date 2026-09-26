@@ -65,6 +65,29 @@ class ArchitectureComponent(BaseModel):
     name: str                              # e.g. "frontend", "backend/API"
     description: str
     evidence_files: list[str] = Field(default_factory=list)
+    technology: Optional[str] = None       # primary technology/framework, e.g. "React + Vite"
+    directories: list[str] = Field(default_factory=list)   # relevant dirs/files
+    confidence: Literal["high", "medium", "low"] = "medium"
+    evidence: list[str] = Field(default_factory=list)      # human-readable evidence bullets
+
+
+class ArchitectureRelationship(BaseModel):
+    """An evidence-backed relationship between two architecture components."""
+    source: str                            # source component name
+    target: str                            # target component name
+    relationship_type: str                 # e.g. "calls", "reads_from", "writes_to"
+    evidence: list[str] = Field(default_factory=list)
+    confidence: Literal["high", "medium", "low"] = "medium"
+
+
+class ArchitectureData(BaseModel):
+    """Complete architecture data produced from repository evidence."""
+    components: list[ArchitectureComponent] = Field(default_factory=list)
+    relationships: list[ArchitectureRelationship] = Field(default_factory=list)
+    summary: str = ""                      # plain-text architecture summary
+    reading_order: list[str] = Field(default_factory=list)  # ordered onboarding steps
+    confidence: Literal["high", "medium", "low"] = "low"
+    evidence_quality: Literal["sufficient", "partial", "insufficient"] = "insufficient"
 
 
 class TechnologyFindings(BaseModel):
@@ -143,3 +166,11 @@ class AnalysisTriggerResponse(BaseModel):
     analysis_id: Optional[str] = None
     evidence_quality: Optional[str] = None
     error: Optional[str] = None
+
+
+class ArchitectureResponse(BaseModel):
+    """Response shape for GET /repositories/{id}/architecture."""
+    repository_id: str
+    architecture_data: Optional[ArchitectureData] = None
+    status: str                            # "ready" | "no_analysis" | "insufficient"
+    message: Optional[str] = None

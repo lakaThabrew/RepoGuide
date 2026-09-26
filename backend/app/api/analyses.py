@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from app.schemas.analysis import AnalysisResponse, AnalysisTriggerResponse
+from app.schemas.analysis import AnalysisResponse, AnalysisTriggerResponse, ArchitectureResponse
 from app.services import analysis_service
 from app.services.repository_service import get_repository
 
@@ -84,4 +84,56 @@ def get_analysis(repository_id: str):
         entry_points=row.get("entry_points"),
         dependencies=row.get("dependencies"),
         created_at=row.get("created_at"),
+    )
+
+
+@router.get(
+    "/{repository_id}/architecture",
+    response_model=ArchitectureResponse,
+)
+def get_architecture(repository_id: str):
+    """
+    Retrieve the derived architecture data for a repository.
+
+    Re-derives architecture from the stored analysis evidence.
+    Returns 404 if the repository does not exist.
+    Returns status='no_analysis' if no analysis has been run yet.
+    Returns status='insufficient' if analysis data is too sparse for
+    a useful architecture diagram.
+    """
+    # Validate repository exists
+    try:
+        repo = get_repository(repository_id)
+    except Exception:
+        raise HTTPException(status_code=500, detail="Database error retrieving repository.")
+
+    if not repo:
+        raise HTTPException(status_code=404, detail="Repository not found.")
+
+    arch_data = analysis_service.get_architecture_data(repository_id)
+
+    if arch_data is None:
+        return ArchitectureResponse(
+            repository_id=repository_id,
+            architecture_data=None,
+            status="no_analysis",
+            message="No analysis found for this repository. Run analysis first.",
+        )
+
+    if not arch_data.components:
+        return ArchitectureResponse(
+            repository_id=repository_id,
+            architecture_data=arch_data,
+            status="insufficient",
+            message=(
+                "The repository metadata does not contain enough information "
+                "to confidently determine architecture components."
+            ),
+        )
+
+    return ArchitectureResponse(
+        repository_id=repository_id,
+        architecture_data=arch_data,
+        status="ready",
+        message=None,
     )
