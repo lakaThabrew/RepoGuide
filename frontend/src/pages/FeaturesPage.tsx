@@ -72,7 +72,7 @@ const FEATURES = [
     icon: Sparkles,
     title: 'First Contribution',
     color: '#ec4899',
-    desc: 'The most unique feature. RepoGuide analyses TODO comments, open issues, documentation gaps, and code complexity to recommend your first contribution — with full implementation steps.',
+    desc: 'The most unique feature. RepoGuide analyses repository structure, test coverage gaps, documentation gaps, and missing tooling to recommend your first contribution — with full implementation steps grounded in real evidence.',
     bullets: [
       'Beginner-friendly task selection',
       'Relevant files identified',
