@@ -28,6 +28,7 @@ class FileEvidence(BaseModel):
     reason: str
     symbol: Optional[str] = None          # function/class name if relevant
     confidence: Literal["high", "medium", "low"] = "medium"
+    category: Optional[str] = None        # e.g. entry_point, configuration, API, etc.
 
 
 class EntryPoint(BaseModel):
@@ -59,6 +60,13 @@ class RouteEvidence(BaseModel):
 # Technology findings — grouped, each item evidence-backed
 # ---------------------------------------------------------------------------
 
+class ArchitectureComponent(BaseModel):
+    """A high-level architectural component identified in the repository."""
+    name: str                              # e.g. "frontend", "backend/API"
+    description: str
+    evidence_files: list[str] = Field(default_factory=list)
+
+
 class TechnologyFindings(BaseModel):
     """All technology signals extracted from repository files."""
     languages: list[str] = Field(default_factory=list)
@@ -75,6 +83,12 @@ class TechnologyFindings(BaseModel):
     backend_components: list[str] = Field(default_factory=list)
     frontend_components: list[str] = Field(default_factory=list)
     important_directories: list[str] = Field(default_factory=list)
+    # Structured directory classifications
+    source_directories: list[str] = Field(default_factory=list)
+    test_directories: list[str] = Field(default_factory=list)
+    doc_directories: list[str] = Field(default_factory=list)
+    # High-level architecture components
+    arch_components: list[ArchitectureComponent] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

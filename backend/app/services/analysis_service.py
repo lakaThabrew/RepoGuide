@@ -31,6 +31,7 @@ from app.config import get_settings
 from app.database.supabase import get_supabase
 from app.schemas.analysis import (
     AnalysisResult,
+    ArchitectureComponent,
     Dependency,
     EntryPoint,
     FileEvidence,
@@ -182,23 +183,32 @@ _AUTH_SIGNALS: list[tuple[str, str]] = [
     ("saml",       "SAML"),
 ]
 
-# Entry point patterns
-_ENTRY_POINT_PATTERNS: list[tuple[str, str]] = [
-    ("main.py",        "Python application entry point"),
-    ("app.py",         "Python application entry point"),
-    ("server.py",      "Python server entry point"),
-    ("run.py",         "Python run script"),
-    ("manage.py",      "Django management entry point"),
-    ("index.js",       "JavaScript entry point"),
-    ("index.ts",       "TypeScript entry point"),
-    ("server.js",      "Node.js server entry point"),
-    ("server.ts",      "Node.js/TypeScript server entry point"),
-    ("main.ts",        "TypeScript entry point"),
-    ("main.go",        "Go application entry point"),
-    ("main.rs",        "Rust application entry point"),
-    ("Application.java", "Java application entry point"),
-    ("Program.cs",     "C# application entry point"),
-    ("index.html",     "Web frontend entry point"),
+# Entry point patterns: (filename, description, path_hint_optional)
+# path_hint: if set, only matches when this string appears somewhere in the path
+_ENTRY_POINT_PATTERNS: list[tuple[str, str, str]] = [
+    ("main.py",          "Python application entry point",          ""),
+    ("app.py",           "Python application entry point",          ""),
+    ("server.py",        "Python server entry point",               ""),
+    ("run.py",           "Python run script",                       ""),
+    ("manage.py",        "Django management entry point",           ""),
+    ("index.js",         "JavaScript entry point",                  ""),
+    ("index.ts",         "TypeScript entry point",                  ""),
+    ("server.js",        "Node.js server entry point",              ""),
+    ("server.ts",        "Node.js/TypeScript server entry point",   ""),
+    ("main.ts",          "TypeScript entry point",                  ""),
+    ("main.jsx",         "React/JavaScript entry point",            ""),
+    ("main.tsx",         "React/TypeScript entry point",            ""),
+    ("index.jsx",        "React/JavaScript entry point",            ""),
+    ("index.tsx",        "React/TypeScript entry point",            ""),
+    ("App.tsx",          "React application root component",        ""),
+    ("App.jsx",          "React application root component",        ""),
+    ("App.js",           "React application root component",        ""),
+    ("main.go",          "Go application entry point",              ""),
+    ("main.rs",          "Rust application entry point",            ""),
+    ("Application.java", "Java application entry point",            ""),
+    ("Program.cs",       "C# application entry point",              ""),
+    ("index.html",       "Web frontend entry point",                ""),
+    ("Dockerfile",       "Container image build definition",        ""),
 ]
 
 
@@ -370,8 +380,11 @@ def _extract_evidence_from_file_list(
             deployment_files.append(path_str)
 
         # --- Entry points ---
-        for ep_name, ep_label in _ENTRY_POINT_PATTERNS:
+        for ep_name, ep_label, ep_path_hint in _ENTRY_POINT_PATTERNS:
             if name_lower == ep_name.lower():
+                # If a path hint is specified, only match when hint appears in path
+                if ep_path_hint and ep_path_hint.lower() not in path_lower:
+                    continue
                 entry_points_evidence.append({
                     "file_path": path_str,
                     "kind": ep_label,
@@ -420,6 +433,12 @@ def _extract_evidence_from_file_list(
     # Derive dev commands from manifest snippets
     dev_commands = _extract_dev_commands(manifest_snippets)
 
+    # Enrich framework detection from manifest content
+    _enrich_frameworks_from_manifests(manifest_snippets, frameworks, runtimes, databases)
+
+    # Classify directories
+    source_dirs, test_dirs, doc_dirs = _classify_directories(files)
+
     # Determine primary language (most files)
     sorted_langs = sorted(languages.items(), key=lambda x: x[1], reverse=True)
     primary_languages = [l for l, _ in sorted_langs[:5]]
@@ -438,6 +457,9 @@ def _extract_evidence_from_file_list(
         "config_files": config_files[:30],
         "deployment_files": deployment_files[:20],
         "important_directories": sorted(important_dirs)[:20],
+        "source_directories": sorted(source_dirs)[:20],
+        "test_directories": sorted(test_dirs)[:20],
+        "doc_directories": sorted(doc_dirs)[:10],
         "important_files": important_files_evidence[:20],
         "entry_points": entry_points_evidence[:10],
         "api_route_files": api_routes[:20],
@@ -449,6 +471,42 @@ def _extract_evidence_from_file_list(
     }
 
 
+# Mapping from lowercase filename → (reason, category) for important-file selection
+_PRIORITY_FILE_MAP: dict[str, tuple[str, str]] = {
+    "readme.md":              ("Project documentation entry point", "documentation"),
+    "readme.rst":             ("Project documentation entry point", "documentation"),
+    "readme.txt":             ("Project documentation entry point", "documentation"),
+    "readme":                 ("Project documentation entry point", "documentation"),
+    "contributing.md":        ("Contribution guide", "documentation"),
+    "license":                ("Project licence", "documentation"),
+    "license.md":             ("Project licence", "documentation"),
+    "package.json":           ("Node.js dependency manifest", "configuration"),
+    "requirements.txt":       ("Python dependency manifest", "configuration"),
+    "pyproject.toml":         ("Python project / dependency manifest", "configuration"),
+    "go.mod":                 ("Go module manifest", "configuration"),
+    "cargo.toml":             ("Rust dependency manifest", "configuration"),
+    "pom.xml":                ("Java/Maven dependency manifest", "configuration"),
+    "build.gradle":           ("Java/Gradle build manifest", "configuration"),
+    "dockerfile":             ("Container image build definition", "deployment"),
+    "docker-compose.yml":     ("Multi-container orchestration definition", "deployment"),
+    "docker-compose.yaml":    ("Multi-container orchestration definition", "deployment"),
+    "makefile":               ("Project build / task runner", "configuration"),
+    "main.py":                ("Python application entry point", "entry_point"),
+    "app.py":                 ("Python application entry point", "entry_point"),
+    "server.py":              ("Python server entry point", "entry_point"),
+    "manage.py":              ("Django management entry point", "entry_point"),
+    "index.js":               ("JavaScript entry point", "entry_point"),
+    "index.ts":               ("TypeScript entry point", "entry_point"),
+    "main.ts":                ("TypeScript entry point", "entry_point"),
+    "main.tsx":               ("React/TypeScript entry point", "entry_point"),
+    "main.jsx":               ("React/JavaScript entry point", "entry_point"),
+    "app.tsx":                ("React application root component", "frontend"),
+    "app.jsx":                ("React application root component", "frontend"),
+    "main.go":                ("Go application entry point", "entry_point"),
+    "main.rs":                ("Rust application entry point", "entry_point"),
+}
+
+
 def _select_important_files(
     files: list[dict],
     entry_points: list[dict],
@@ -458,29 +516,36 @@ def _select_important_files(
     important: list[dict] = []
     seen: set[str] = set()
 
-    # Always-important filenames
-    priority_names = {
-        "readme.md", "readme.rst", "readme.txt", "readme",
-        "contributing.md", "license", "license.md",
-        "package.json", "requirements.txt", "pyproject.toml",
-        "go.mod", "cargo.toml", "pom.xml",
-        "dockerfile", "docker-compose.yml", "docker-compose.yaml",
-        "makefile", ".github",
-        "main.py", "app.py", "index.js", "index.ts", "main.go", "main.rs",
-    }
-
     for f in files:
         if f.get("is_directory"):
             continue
         name_lower = (f.get("file_name") or "").lower()
         path = f.get("file_path", "")
-        if name_lower in priority_names and path not in seen:
+        path_lower = path.lower()
+
+        if name_lower in _PRIORITY_FILE_MAP and path not in seen:
+            reason, category = _PRIORITY_FILE_MAP[name_lower]
             important.append({
                 "file_path": path,
-                "reason": "High-priority file for project understanding",
+                "reason": reason,
                 "confidence": "high",
+                "category": category,
             })
             seen.add(path)
+            continue
+
+        # Categorise API/service/database files by path patterns
+        if path not in seen:
+            cat = _categorise_file_by_path(path_lower, name_lower)
+            if cat:
+                reason, category = cat
+                important.append({
+                    "file_path": path,
+                    "reason": reason,
+                    "confidence": "medium",
+                    "category": category,
+                })
+                seen.add(path)
 
     for ep in entry_points:
         path = ep["file_path"]
@@ -489,10 +554,66 @@ def _select_important_files(
                 "file_path": path,
                 "reason": ep["kind"],
                 "confidence": "high",
+                "category": "entry_point",
             })
             seen.add(path)
 
     return important[:20]
+
+
+def _categorise_file_by_path(path_lower: str, name_lower: str) -> Optional[tuple[str, str]]:
+    """
+    Return (reason, category) for a file based on path/name patterns,
+    or None if it is not noteworthy.
+
+    Checks are ordered from most-specific to least-specific to avoid false matches.
+    Test files and auth files are checked before generic API/service patterns.
+    """
+    ext = "." + name_lower.rsplit(".", 1)[-1] if "." in name_lower else ""
+
+    # Deployment / CI  (check early — very specific path)
+    if ".github/workflows" in path_lower:
+        return ("GitHub Actions CI/CD workflow", "deployment")
+
+    # Test files  (check before API/service — test dirs often contain route names)
+    if (
+        "test" in path_lower or "spec" in path_lower
+        or name_lower.startswith("test_") or name_lower.endswith("_test.py")
+    ):
+        if ext in (".py", ".ts", ".js", ".go", ".rs", ".java"):
+            return ("Test file", "tests")
+
+    # Authentication  (check before service — auth_service has 'auth' AND 'service')
+    if any(k in path_lower for k in ("auth", "login", "oauth", "jwt", "token",
+                                      "permission", "guard", "session")):
+        if ext in (".py", ".ts", ".js", ".go", ".rs", ".java"):
+            return ("Authentication / authorisation file", "authentication")
+
+    # Database / ORM files
+    if any(k in path_lower for k in ("models", "schema", "migration", "migrate",
+                                      "database", "db", "orm")):
+        if ext in (".py", ".ts", ".js", ".sql", ".go", ".rs"):
+            return ("Database models / schema / migration file", "database")
+
+    # API / route files
+    if any(k in path_lower for k in ("api", "routes", "router", "controllers",
+                                      "handlers", "views", "endpoints", "urls")):
+        if ext in (".py", ".ts", ".js", ".go", ".rs", ".java"):
+            return ("API route or controller file", "API")
+
+    # Core service / business logic
+    if any(k in path_lower for k in ("service", "services", "core", "logic",
+                                      "business", "domain")):
+        if ext in (".py", ".ts", ".js", ".go", ".rs", ".java"):
+            return ("Core service / business logic file", "core service")
+
+    # Frontend components
+    if any(k in path_lower for k in ("components", "pages", "views", "layout",
+                                      "hooks", "store", "context")):
+        if ext in (".tsx", ".jsx", ".ts", ".js", ".vue", ".svelte"):
+            return ("Frontend component / page file", "frontend")
+
+    return None
 
 
 def _extract_dev_commands(manifest_snippets: dict[str, str]) -> list[str]:
@@ -522,6 +643,306 @@ def _extract_dev_commands(manifest_snippets: dict[str, str]) -> list[str]:
                     commands.append(f"make {m.group(1)}")
 
     return commands
+
+
+def _enrich_frameworks_from_manifests(
+    manifest_snippets: dict[str, str],
+    frameworks: set[str],
+    runtimes: set[str],
+    databases: set[str],
+) -> None:
+    """
+    Detect technologies (React, Vite, Node.js, FastAPI, etc.) from manifest
+    file *content* where content is available.  Mutates the passed sets in-place.
+
+    This is the only place where manifest content is used for technology detection.
+    Content is already redacted and injection-checked before reaching here.
+    """
+    for file_path, content in manifest_snippets.items():
+        name = Path(file_path).name.lower()
+
+        if name == "package.json":
+            try:
+                data = json.loads(content)
+            except (json.JSONDecodeError, AttributeError):
+                continue
+
+            # Collect all dependency names (runtime + dev)
+            all_deps: set[str] = set()
+            for dep_name in data.get("dependencies", {}):
+                all_deps.add(dep_name.lower())
+            for dep_name in data.get("devDependencies", {}):
+                all_deps.add(dep_name.lower())
+
+            # React
+            if "react" in all_deps or "react-dom" in all_deps:
+                frameworks.add("React")
+            # React Router
+            if "react-router" in all_deps or "react-router-dom" in all_deps:
+                frameworks.add("React Router")
+            # Vite
+            if "vite" in all_deps:
+                frameworks.add("Vite")
+            # Next.js
+            if "next" in all_deps:
+                frameworks.add("Next.js")
+            # Vue
+            if "vue" in all_deps:
+                frameworks.add("Vue.js")
+            # Angular
+            if "@angular/core" in all_deps:
+                frameworks.add("Angular")
+            # Svelte
+            if "svelte" in all_deps:
+                frameworks.add("Svelte")
+            # Express
+            if "express" in all_deps:
+                frameworks.add("Express.js")
+            # Fastify
+            if "fastify" in all_deps:
+                frameworks.add("Fastify")
+            # Node.js runtime (package.json itself implies Node.js)
+            runtimes.add("Node.js")
+            # TypeScript
+            if "typescript" in all_deps:
+                runtimes.add("TypeScript")
+
+        elif name in ("requirements.txt", "pipfile"):
+            content_lower = content.lower()
+            # FastAPI
+            if "fastapi" in content_lower:
+                frameworks.add("FastAPI")
+            # Flask
+            if "flask" in content_lower:
+                frameworks.add("Flask")
+            # Django
+            if "django" in content_lower:
+                frameworks.add("Django")
+            # SQLAlchemy
+            if "sqlalchemy" in content_lower:
+                databases.add("SQLAlchemy")
+            # Supabase
+            if "supabase" in content_lower:
+                databases.add("Supabase")
+            # Psycopg → PostgreSQL
+            if "psycopg" in content_lower:
+                databases.add("PostgreSQL")
+            # Alembic (migrations → DB)
+            if "alembic" in content_lower:
+                databases.add("SQLAlchemy (Alembic)")
+
+        elif name == "pyproject.toml":
+            content_lower = content.lower()
+            if "fastapi" in content_lower:
+                frameworks.add("FastAPI")
+            if "flask" in content_lower:
+                frameworks.add("Flask")
+            if "django" in content_lower:
+                frameworks.add("Django")
+            if "sqlalchemy" in content_lower:
+                databases.add("SQLAlchemy")
+            if "supabase" in content_lower:
+                databases.add("Supabase")
+
+        elif name == "go.mod":
+            content_lower = content.lower()
+            runtimes.add("Go")
+            if "gin-gonic" in content_lower or "gin" in content_lower:
+                frameworks.add("Gin")
+            if "echo" in content_lower:
+                frameworks.add("Echo")
+            if "fiber" in content_lower:
+                frameworks.add("Fiber")
+
+        elif name == "cargo.toml":
+            content_lower = content.lower()
+            runtimes.add("Rust")
+            if "actix" in content_lower:
+                frameworks.add("Actix-web")
+            if "axum" in content_lower:
+                frameworks.add("Axum")
+            if "rocket" in content_lower:
+                frameworks.add("Rocket")
+
+        elif name in ("pom.xml", "build.gradle", "build.gradle.kts"):
+            content_lower = content.lower()
+            runtimes.add("Java")
+            if "springframework" in content_lower or "spring-boot" in content_lower:
+                frameworks.add("Spring Boot")
+            if "quarkus" in content_lower:
+                frameworks.add("Quarkus")
+            if "micronaut" in content_lower:
+                frameworks.add("Micronaut")
+
+
+def _classify_directories(files: list[dict]) -> tuple[set[str], set[str], set[str]]:
+    """
+    Classify top-level and second-level directories into:
+      source_dirs  — likely contain primary source code
+      test_dirs    — likely contain tests
+      doc_dirs     — likely contain documentation
+
+    Returns (source_dirs, test_dirs, doc_dirs) as sets of directory paths.
+    """
+    source_dirs: set[str] = set()
+    test_dirs: set[str] = set()
+    doc_dirs: set[str] = set()
+
+    _SOURCE_NAMES = frozenset({
+        "src", "lib", "app", "backend", "frontend", "server", "client",
+        "pkg", "internal", "cmd", "api", "core", "main",
+    })
+    _TEST_NAMES = frozenset({
+        "tests", "test", "spec", "specs", "__tests__", "e2e",
+        "integration", "unit", "test_suite",
+    })
+    _DOC_NAMES = frozenset({
+        "docs", "doc", "documentation", "wiki", "guides", "examples",
+    })
+
+    for f in files:
+        if not f.get("is_directory"):
+            continue
+        path_str: str = f.get("file_path", "")
+        parts = [p.lower() for p in path_str.split("/") if p]
+        if not parts:
+            continue
+        # Only look at top 2 levels
+        for depth, part in enumerate(parts[:2]):
+            dir_path = "/".join(path_str.split("/")[:depth + 1])
+            if part in _SOURCE_NAMES:
+                source_dirs.add(dir_path)
+            elif part in _TEST_NAMES:
+                test_dirs.add(dir_path)
+            elif part in _DOC_NAMES:
+                doc_dirs.add(dir_path)
+
+    return source_dirs, test_dirs, doc_dirs
+
+
+def _build_arch_components(evidence: dict[str, Any]) -> list[dict]:
+    """
+    Produce a list of high-level architecture components with evidence.
+    Each component has: name, description, evidence_files.
+    Components are only emitted when real evidence supports them.
+    """
+    components: list[dict] = []
+
+    # --- Frontend ---
+    frontend_evidence: list[str] = []
+    if any(fw in evidence.get("frameworks", []) for fw in
+           ("React", "Vue.js", "Angular", "Svelte", "Next.js", "Nuxt.js",
+            "Gatsby", "Astro", "Remix")):
+        frontend_evidence.extend(evidence.get("config_files", [])[:3])
+    frontend_files = [
+        f for f in evidence.get("important_files", [])
+        if f.get("category") in ("frontend", "entry_point")
+        and any(ext in f.get("file_path", "") for ext in (".tsx", ".jsx", ".vue", ".svelte"))
+    ]
+    frontend_evidence.extend([f["file_path"] for f in frontend_files[:3]])
+    # Also add frontend component dirs
+    frontend_evidence.extend(evidence.get("frontend_components", [])[:3])
+    if frontend_evidence or evidence.get("frontend_components"):
+        components.append({
+            "name": "frontend",
+            "description": (
+                "Client-side application layer. "
+                f"Detected frameworks: {', '.join(evidence.get('frameworks', [])) or 'none'}."
+            ),
+            "evidence_files": list(dict.fromkeys(frontend_evidence))[:5],
+        })
+
+    # --- Backend / API ---
+    backend_evidence: list[str] = []
+    api_files = [f["file_path"] for f in evidence.get("important_files", [])
+                 if f.get("category") == "API"]
+    backend_evidence.extend(api_files[:5])
+    backend_evidence.extend(evidence.get("api_route_files", [f["file_path"]
+                             if isinstance(f, dict) else f
+                             for f in evidence.get("api_route_files", [])])[:3]
+                             if False else
+                             [r["file_path"] if isinstance(r, dict) else r
+                              for r in evidence.get("api_route_files", [])][:3])
+    backend_evidence.extend([ep["file_path"] for ep in evidence.get("entry_points", [])
+                              if "python" in ep.get("kind", "").lower()
+                              or "server" in ep.get("kind", "").lower()
+                              or "go" in ep.get("kind", "").lower()][:3])
+    if backend_evidence or evidence.get("backend_components"):
+        langs = evidence.get("primary_languages", [])
+        fws = evidence.get("frameworks", [])
+        backend_fws = [f for f in fws if f not in
+                       ("React", "Vue.js", "Angular", "Svelte", "Next.js", "Nuxt.js",
+                        "Gatsby", "Astro", "Remix", "Vite", "Webpack", "Tailwind CSS")]
+        components.append({
+            "name": "backend/API",
+            "description": (
+                "Server-side / API layer. "
+                f"Languages: {', '.join(langs[:3]) or 'unknown'}. "
+                f"Frameworks: {', '.join(backend_fws[:3]) or 'none detected'}."
+            ),
+            "evidence_files": list(dict.fromkeys(backend_evidence))[:5],
+        })
+
+    # --- Database / Data Layer ---
+    db_evidence: list[str] = []
+    db_files = [f["file_path"] for f in evidence.get("important_files", [])
+                if f.get("category") == "database"]
+    db_evidence.extend(db_files[:5])
+    if evidence.get("databases") or db_evidence:
+        components.append({
+            "name": "database/data layer",
+            "description": (
+                "Persistence layer. "
+                f"Detected: {', '.join(evidence.get('databases', [])) or 'unknown'}."
+            ),
+            "evidence_files": list(dict.fromkeys(db_evidence))[:5],
+        })
+
+    # --- Authentication ---
+    auth_evidence = [a["file_path"] for a in evidence.get("auth_signals", [])[:5]]
+    auth_files = [f["file_path"] for f in evidence.get("important_files", [])
+                  if f.get("category") == "authentication"]
+    auth_evidence.extend(auth_files[:3])
+    if auth_evidence:
+        components.append({
+            "name": "authentication",
+            "description": "Authentication / authorisation layer found in repository.",
+            "evidence_files": list(dict.fromkeys(auth_evidence))[:5],
+        })
+
+    # --- Core Services ---
+    svc_evidence = [f["file_path"] for f in evidence.get("important_files", [])
+                    if f.get("category") == "core service"][:5]
+    if svc_evidence:
+        components.append({
+            "name": "services",
+            "description": "Core business logic / service layer.",
+            "evidence_files": svc_evidence[:5],
+        })
+
+    # --- Tests ---
+    test_evidence = evidence.get("test_files", [])[:5]
+    test_dirs = evidence.get("test_directories", [])[:3]
+    if test_evidence or test_dirs:
+        components.append({
+            "name": "tests",
+            "description": (
+                f"Test suite. Detected test directories: "
+                f"{', '.join(test_dirs) if test_dirs else 'see evidence files'}."
+            ),
+            "evidence_files": list(dict.fromkeys(test_evidence + test_dirs))[:5],
+        })
+
+    # --- Deployment / Infrastructure ---
+    deploy_evidence = evidence.get("deployment_files", [])[:5]
+    if deploy_evidence:
+        components.append({
+            "name": "deployment/infrastructure",
+            "description": "Containerisation, CI/CD, or cloud deployment configuration.",
+            "evidence_files": deploy_evidence[:5],
+        })
+
+    return components
 
 
 _SECRET_PATTERN = re.compile(
@@ -565,9 +986,27 @@ def _build_analysis_result(
         quality = "insufficient"
     elif total < 5 and not evidence.get("entry_points"):
         quality = "partial"
+    elif (
+        evidence.get("primary_languages")
+        and evidence.get("entry_points")
+        and (evidence.get("frameworks") or evidence.get("runtimes"))
+    ):
+        # We have language + entry points + framework/runtime → sufficient
+        quality = "sufficient"
     else:
         raw_quality = ai_output.get("evidence_quality", "partial") if not null_provider else "partial"
         quality = raw_quality if raw_quality in _VALID_QUALITY else "partial"
+
+    # Build architecture components from evidence
+    arch_component_dicts = _build_arch_components(evidence)
+    arch_component_objs = [
+        ArchitectureComponent(
+            name=c["name"],
+            description=c["description"],
+            evidence_files=c.get("evidence_files", []),
+        )
+        for c in arch_component_dicts
+    ]
 
     # Build technologies
     tech = TechnologyFindings(
@@ -593,6 +1032,10 @@ def _build_analysis_result(
         backend_components=evidence.get("backend_components", []),
         frontend_components=evidence.get("frontend_components", []),
         important_directories=evidence.get("important_directories", []),
+        source_directories=evidence.get("source_directories", []),
+        test_directories=evidence.get("test_directories", []),
+        doc_directories=evidence.get("doc_directories", []),
+        arch_components=arch_component_objs,
     )
 
     important_files = [
@@ -610,6 +1053,10 @@ def _build_analysis_result(
 
     # Parse dependencies from manifest snippets
     dependencies = _parse_dependencies(evidence.get("manifest_snippets", {}))
+    # Also add manifest files without content as dependency manifests (no fabrication)
+    dependencies = _add_manifest_file_references(
+        dependencies, evidence.get("important_files", [])
+    )
 
     return AnalysisResult(
         project_summary=project_summary,
@@ -665,6 +1112,18 @@ def _evidence_only_architecture(evidence: dict[str, Any]) -> str:
     dirs = evidence.get("important_directories", [])
     if dirs:
         parts.append(f"Top-level directories: {', '.join(dirs)}.")
+
+    src_dirs = evidence.get("source_directories", [])
+    if src_dirs:
+        parts.append(f"Source directories: {', '.join(src_dirs[:5])}.")
+
+    test_dirs = evidence.get("test_directories", [])
+    if test_dirs:
+        parts.append(f"Test directories: {', '.join(test_dirs[:5])}.")
+
+    doc_dirs = evidence.get("doc_directories", [])
+    if doc_dirs:
+        parts.append(f"Documentation directories: {', '.join(doc_dirs[:3])}.")
 
     backend = evidence.get("backend_components", [])
     if backend:
@@ -726,7 +1185,82 @@ def _parse_dependencies(manifest_snippets: dict[str, str]) -> list[Dependency]:
                                 source_file=file_path,
                             ))
 
+        elif name == "go.mod":
+            # Extract module requires: "require pkg vX.Y.Z" or block-form "pkg vX.Y.Z"
+            for line in content.splitlines():
+                line = line.strip()
+                # Single-line: require github.com/foo/bar v1.2.3
+                m = re.match(r"^require\s+(\S+)\s+(v\S+)", line)
+                if m:
+                    deps.append(Dependency(
+                        name=m.group(1), version=m.group(2),
+                        kind="runtime", source_file=file_path,
+                    ))
+                    continue
+                # Block body line: github.com/foo/bar v1.2.3
+                m2 = re.match(r"^(\S+)\s+(v\S+)", line)
+                if m2 and not m2.group(1).startswith("//"):
+                    deps.append(Dependency(
+                        name=m2.group(1), version=m2.group(2),
+                        kind="runtime", source_file=file_path,
+                    ))
+
+        elif name == "cargo.toml":
+            # Parse [dependencies] section: name = "version" or name = { version = "..." }
+            in_deps_section = False
+            for line in content.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("[dependencies]"):
+                    in_deps_section = True
+                    continue
+                if stripped.startswith("[dev-dependencies]"):
+                    in_deps_section = True
+                    continue
+                if stripped.startswith("[") and "dependencies" not in stripped:
+                    in_deps_section = False
+                    continue
+                if in_deps_section and "=" in stripped and not stripped.startswith("#"):
+                    # name = "version"  or  name = { version = "X" }
+                    m = re.match(r'^([A-Za-z0-9_\-]+)\s*=\s*"([^"]+)"', stripped)
+                    if m:
+                        deps.append(Dependency(
+                            name=m.group(1), version=m.group(2),
+                            kind="runtime", source_file=file_path,
+                        ))
+
     return deps[:100]  # cap
+
+
+def _add_manifest_file_references(
+    existing_deps: list[Dependency],
+    important_files: list[dict],
+) -> list[Dependency]:
+    """
+    For manifest files that are in important_files but whose content was not
+    available (so _parse_dependencies produced nothing for them), add a single
+    sentinel Dependency entry so the manifest is still reported.
+
+    This avoids fabricating dependency names while still surfacing the manifest.
+    """
+    _KNOWN_MANIFESTS = {
+        "package.json", "requirements.txt", "pyproject.toml",
+        "go.mod", "cargo.toml", "pom.xml", "build.gradle",
+        "build.gradle.kts", "gemfile", "composer.json",
+    }
+    # Which source files already have at least one dep?
+    covered_sources = {d.source_file for d in existing_deps}
+
+    result = list(existing_deps)
+    for f in important_files:
+        fp = f.get("file_path", "")
+        fname = fp.rsplit("/", 1)[-1].lower()
+        if fname in _KNOWN_MANIFESTS and fp not in covered_sources:
+            result.append(Dependency(
+                name=f"(manifest: {fname})",
+                kind="unknown",
+                source_file=fp,
+            ))
+    return result[:100]
 
 
 # ---------------------------------------------------------------------------
