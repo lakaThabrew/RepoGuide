@@ -5,6 +5,23 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('supabase_token')
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
+// ---------------------------------------------------------------------------
+// Auth APIs
+// ---------------------------------------------------------------------------
+export const signUp = (data: any) => api.post('/auth/signup', data).then(r => r.data)
+export const signIn = (data: any) => api.post('/auth/signin', data).then(r => r.data)
+export const resetPassword = (data: any) => api.post('/auth/reset-password', data).then(r => r.data)
+export const getProfile = () => api.get('/auth/profile').then(r => r.data)
+export const updateProfile = (data: any) => api.put('/auth/profile', data).then(r => r.data)
+
 export interface Repository {
   id: string
   github_url: string
