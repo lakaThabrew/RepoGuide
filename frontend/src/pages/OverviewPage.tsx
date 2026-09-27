@@ -422,16 +422,15 @@ export default function OverviewPage() {
     setPageState('loading-analysis')
     try {
       const data = await getAnalysis(repo.id)
-      setAnalysis(data)
-      setPageState('analyzed')
-    } catch (err: unknown) {
-      const status = (err as { response?: { status?: number } })?.response?.status
-      if (status === 404) {
+      if (data.status === 'not-analyzed') {
         setPageState('not-analyzed')
       } else {
-        setAnalyzeError('Failed to load analysis. Please try again.')
-        setPageState('error')
+        setAnalysis(data)
+        setPageState('analyzed')
       }
+    } catch (err: unknown) {
+      setAnalyzeError('Failed to load analysis. Please try again.')
+      setPageState('error')
     }
   }, [repo.id])
 

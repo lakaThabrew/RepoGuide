@@ -110,6 +110,7 @@ export interface TechnologyFindings {
 export interface AnalysisResponse {
   id?: string
   repository_id: string
+  status: string
   project_summary?: string
   architecture?: string
   setup_guide?: string

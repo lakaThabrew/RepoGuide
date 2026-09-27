@@ -148,6 +148,7 @@ class AnalysisResponse(BaseModel):
     """Response shape for GET /repositories/{id}/analysis."""
     id: Optional[str] = None
     repository_id: str
+    status: str = "analyzed"
     project_summary: Optional[str] = None
     architecture: Optional[str] = None
     setup_guide: Optional[str] = None

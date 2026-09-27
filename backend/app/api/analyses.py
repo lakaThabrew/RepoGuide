@@ -68,9 +68,9 @@ def get_analysis(repository_id: str):
 
     row = analysis_service.get_analysis(repository_id)
     if not row:
-        raise HTTPException(
-            status_code=404,
-            detail="No analysis found for this repository. POST /analyze to start one.",
+        return AnalysisResponse(
+            repository_id=repository_id,
+            status="not-analyzed",
         )
 
     return AnalysisResponse(
