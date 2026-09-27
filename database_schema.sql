@@ -72,3 +72,29 @@ create table contributions (
     tests_to_add jsonb,
     created_at timestamptz default now()
 );
+
+-- 6. profiles Table (Extending Supabase Auth)
+create table profiles (
+    id uuid primary key references auth.users(id) on delete cascade,
+    username text unique,
+    full_name text,
+    avatar_url text,
+    created_at timestamptz default now(),
+    updated_at timestamptz default now()
+);
+
+-- Secure the profiles table with RLS (Row Level Security)
+-- This ensures users can only read/update their own profile data (Preventing security risks)
+alter table profiles enable row level security;
+
+create policy "Public profiles are viewable by everyone."
+    on profiles for select
+    using ( true );
+
+create policy "Users can insert their own profile."
+    on profiles for insert
+    with check ( auth.uid() = id );
+
+create policy "Users can update own profile."
+    on profiles for update
+    using ( auth.uid() = id );
