@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
-from app.api import repositories, analyses, questions, contributions, setup, files
+from app.api import repositories, analyses, questions, contributions, setup, files, auth
 
 settings = get_settings()
 
@@ -21,6 +21,7 @@ app.add_middleware(
 )
 
 # Routers
+app.include_router(auth.router)
 app.include_router(repositories.router)
 app.include_router(analyses.router)
 app.include_router(questions.router)
