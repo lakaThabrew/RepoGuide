@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { signUp } from '../../services/api'
 import Navbar from '../../components/Navbar'
 import Footer from '../../components/Footer'
@@ -12,7 +12,7 @@ export default function SignUpPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
-  const navigate = useNavigate()
+
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault()
