@@ -9,3 +9,4 @@ gitpython==3.1.43
 pygments==2.18.0
 openai==1.54.3
 pytest==8.3.3
+certifi>=2026.10.19
